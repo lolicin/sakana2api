@@ -1,0 +1,10 @@
+# Shell scripts must stay LF: CRLF breaks bash on the Linux host (start_sakana
+# shipped CRLF once and the service could not start — see v0.20.0 deploy log).
+*.sh text eol=lf
+docker-entrypoint.sh text eol=lf
+*.py text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.html text eol=lf

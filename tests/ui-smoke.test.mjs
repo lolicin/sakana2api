@@ -49,6 +49,7 @@ const server = createServer((req, res) => {
         'x-conversation-id': 'smoke-conversation',
       });
       res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: chatRequests === 2 ? 'retry ok' : 'new turn ok' }, finish_reason: null }] }) + '\n\n');
+      res.write('data: ' + JSON.stringify({ choices: [], usage: { prompt_tokens: 1200, completion_tokens: 40, total_tokens: 1240 } }) + '\n\n');
       res.end('data: [DONE]\n\n');
     });
   } else if (url.pathname.startsWith('/v1/conversations/') && url.pathname.endsWith('/stop')) body(200, { ok: true });
@@ -158,6 +159,12 @@ try {
   await page.selectOption('#chatStyleSelect', 'osaka');
   await page.click('#btnSendChat');
   await page.waitForFunction(() => document.querySelector('#chatMessages')?.textContent.includes('new turn ok'), null, { timeout: 10_000 });
+  // Full-context accounting: the tail usage chunk must surface in the
+  // assistant meta line (input↑ / output↓ / Σ total / speed).
+  await page.waitForFunction(() => {
+    const metas = [...document.querySelectorAll('#chatMessages .msg-meta')];
+    return metas.some((m) => m.textContent.includes('↑1,200') && m.textContent.includes('↓40') && m.textContent.includes('Σ 1,240') && m.textContent.includes('tok/s'));
+  }, null, { timeout: 5_000 });
   if (requestBodies[2].style !== 'osaka') throw new Error(`style parameter missing: ${JSON.stringify(requestBodies[2]).slice(0, 120)}`);
   const thirdPayload = JSON.stringify(requestBodies[2]);
   if (chatRequests !== 3 || thirdPayload.includes('data:text/plain;base64,') || thirdPayload.includes('chapter attachment')) throw new Error('later turn resent released attachment');

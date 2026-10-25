@@ -7,6 +7,7 @@ const path = require('path');
 const { randomUUID } = require('crypto');
 const { AsyncLocalStorage } = require('async_hooks');
 const { MODELS, openaiRequestToSakana, normalizedMessagesToPrompt, assertStandardModel, NdjsonTranslator, sse, clean, stripChips, extractFileContent, buildSearchChainPrompt, renderChainSources, mergeCitations, citationsToAnnotations } = require('./lib/translate');
+const { estimateTokens, estimateRequestTokens } = require('./lib/token-estimate');
 const { anthropicToChat, chatToAnthropicNonStream, AnthropicStreamer } = require('./lib/anthropic');
 const { SakanaUpstream, UpstreamError, closeGlobalDispatcher, probeSession } = require('./lib/upstream');
 const mailConfig = require('./lib/mail-config');
@@ -793,7 +794,7 @@ async function continueNativeToolRound(conversationId, sakanaReq, signal) {
  * Time-bounded (SAKANA_SEARCH_TIMEOUT_MS, default 60s): a hung search must
  * never stall the whole response — the thinking round proceeds without sources.
  */
-async function runSearchChainRound(conversationId, sakanaReq, { lastMessageId, signal }) {
+async function runSearchChainRound(conversationId, sakanaReq, { lastMessageId, signal, ledger = null }) {
   const searchTimeoutMs = Math.max(5000, parseInt(process.env.SAKANA_SEARCH_TIMEOUT_MS || '60000', 10));
   const searchSignal = AbortSignal.any([signal, AbortSignal.timeout(searchTimeoutMs)].filter(Boolean));
   const searchReq = {
@@ -809,6 +810,8 @@ async function runSearchChainRound(conversationId, sakanaReq, { lastMessageId, s
     route: { ...(sakanaReq.route || {}), chainSearch: false },
   };
   const t = new NdjsonTranslator({ declaredTools: [] });
+  // The chain round consumes its own upstream context (search prompt only).
+  if (ledger) ledger.tokens += estimateRequestTokens(searchReq).total;
   const resp = await upstream.streamGenerate(conversationId, searchReq, { lastMessageId, signal: searchSignal });
   const drained = await drainUpstreamRound(resp, t, undefined, searchSignal);
   return { citations: t.citations || [], reasoning: drained.reasoning || '', note: renderChainSources(t.citations) };
@@ -1325,11 +1328,16 @@ async function handleChatInner(req, res, body, start, ctxEntry) {
     // Smart routing round 1 (code/writer profiles): search-only collection
     // pass, then feed the sources into the thinking round. Runs before the
     // main stream so lease/retry semantics on main-round failures are kept.
+    // inputLedger accumulates the full upstream-context cost of the request:
+    // chain prompt + assembled prompt + every file part (attachments, optical
+    // pages, context tail) — usage must reflect the whole black box, not just
+    // the output.
+    const inputLedger = { tokens: 0 };
     let chainCitations = [];
     let chainReasoning = '';
     if (sakanaReq.route?.chainSearch && !sakanaReq.isToolTurn && !sakanaReq.isContinue) {
       try {
-        const chain = await runSearchChainRound(conversationId, sakanaReq, { lastMessageId, signal });
+        const chain = await runSearchChainRound(conversationId, sakanaReq, { lastMessageId, signal, ledger: inputLedger });
         if (chain.note) {
           sakanaReq.prompt = chain.note + '\n\n' + sakanaReq.prompt;
           chainCitations = chain.citations;
@@ -1350,13 +1358,16 @@ async function handleChatInner(req, res, body, start, ctxEntry) {
       console.log(`[optical] render failed, keeping single-document pipeline: ${stableErrorCode(e, 500)}`);
     }
 
+    // Account the main-round input AFTER optical packaging mutated the files.
+    inputLedger.tokens += estimateRequestTokens(sakanaReq).total;
+
     const upResp = await upstream.streamGenerate(conversationId, sakanaReq, { lastMessageId, signal });
 
     if (!streaming) {
       let text = '';
       let reasoning = '';
       const toolCalls = [];
-      const first = await drainUpstreamRound(upResp, new NdjsonTranslator({ declaredTools: sakanaReq.clientToolNames }), undefined, signal);
+      const first = await drainUpstreamRound(upResp, new NdjsonTranslator({ declaredTools: sakanaReq.clientToolNames, promptTokens: inputLedger.tokens }), undefined, signal);
       text += first.content;
       reasoning += first.reasoning;
       toolCalls.push(...first.toolCalls);
@@ -1401,7 +1412,7 @@ async function handleChatInner(req, res, body, start, ctxEntry) {
         model: modelName,
         conversation_id: conversationId || undefined,
         choices: [{ index: 0, message: msg, finish_reason: finishReason }],
-        usage: { prompt_tokens: Math.round(promptChars / 4), completion_tokens: Math.round(((text || '').length + (reasoning || '').length) / 4), total_tokens: 0 },
+        usage: { prompt_tokens: inputLedger.tokens, completion_tokens: estimateTokens((text || '') + (reasoning || '')), total_tokens: inputLedger.tokens + estimateTokens((text || '') + (reasoning || '')) },
       };
       const mergedCitations = mergeCitations(chainCitations, t.citations);
       if (mergedCitations.length) {
@@ -1420,7 +1431,7 @@ async function handleChatInner(req, res, body, start, ctxEntry) {
     // streaming
     res.setHeader('x-conversation-id', conversationId || '');
     sseHeaders(res);
-    let t = new NdjsonTranslator({ declaredTools: sakanaReq.clientToolNames });
+    let t = new NdjsonTranslator({ declaredTools: sakanaReq.clientToolNames, promptTokens: inputLedger.tokens });
     let streamedChars = 0;
     const base = { id: t.assistantMessageId, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model: modelName };
     let streamError = null;
@@ -1443,7 +1454,7 @@ async function handleChatInner(req, res, body, start, ctxEntry) {
       while (!t.sentContent && !t.clientToolRound && !streamError && rounds < toolRoundsFor(sakanaReq)) {
         rounds++;
         try {
-          const contT = new NdjsonTranslator({ declaredTools: sakanaReq.clientToolNames });
+          const contT = new NdjsonTranslator({ declaredTools: sakanaReq.clientToolNames, promptTokens: inputLedger.tokens });
           const leaf = await upstream.getLastMessageId(conversationId, signal);
           lastMessageId = leaf;
           const contReq = { ...sakanaReq, isContinue: true, prompt: undefined, files: [] };
@@ -1854,7 +1865,7 @@ async function makeChatResponseInner(chatBody) {
     const cached = cache.get(cacheKey);
     if (cached) {
       stats.finish({ stream: false, ok: true, model: modelName, promptChars, completionChars: (cached.text || '').length, keyId: null });
-      return { content: cached.choices?.[0]?.message?.content || '', reasoning: cached.choices?.[0]?.message?.reasoning_content || '', conversationId: cached.conversation_id, promptTokens: 0, completionTokens: 0 };
+      return { content: cached.choices?.[0]?.message?.content || '', reasoning: cached.choices?.[0]?.message?.reasoning_content || '', conversationId: cached.conversation_id, promptTokens: estimateRequestTokens(sakanaReq).total, completionTokens: 0 };
     }
   }
 
@@ -1889,10 +1900,13 @@ async function makeChatResponseInner(chatBody) {
   }
 
   // Smart routing round 1 (code/writer profiles) — same as the chat path.
+  // Full input accounting mirrors the chat path: chain + prompt + all file
+  // parts, so Anthropic-style usage reflects the entire upstream context.
+  const inputLedger = { tokens: 0 };
   let chainCitations = [];
   if (sakanaReq.route?.chainSearch && !sakanaReq.isToolTurn && !sakanaReq.isContinue) {
     try {
-      const chain = await runSearchChainRound(conversationId, sakanaReq, { lastMessageId, signal });
+      const chain = await runSearchChainRound(conversationId, sakanaReq, { lastMessageId, signal, ledger: inputLedger });
       if (chain.note) {
         sakanaReq.prompt = chain.note + '\n\n' + sakanaReq.prompt;
         chainCitations = chain.citations;
@@ -1910,8 +1924,9 @@ async function makeChatResponseInner(chatBody) {
     console.log(`[optical] render failed, keeping single-document pipeline: ${stableErrorCode(e, 500)}`);
   }
 
+  inputLedger.tokens += estimateRequestTokens(sakanaReq).total;
   const upResp = await upstream.streamGenerate(conversationId, sakanaReq, { lastMessageId, signal });
-  let t = new NdjsonTranslator({ declaredTools: sakanaReq.clientToolNames });
+  let t = new NdjsonTranslator({ declaredTools: sakanaReq.clientToolNames, promptTokens: inputLedger.tokens });
 
   if (streaming) {
     // Return SSE chunk generator, mirroring chat path but as async iterable.
@@ -1925,7 +1940,7 @@ async function makeChatResponseInner(chatBody) {
         let rounds = 0;
         while (!t.sentContent && !t.clientToolRound && rounds < toolRoundsFor(sakanaReq)) {
           rounds++;
-          const contT = new NdjsonTranslator({ declaredTools: sakanaReq.clientToolNames });
+          const contT = new NdjsonTranslator({ declaredTools: sakanaReq.clientToolNames, promptTokens: inputLedger.tokens });
           const leaf = await upstream.getLastMessageId(conversationId, signal);
           lastMessageId = leaf;
           const contReq = { ...sakanaReq, isContinue: true, prompt: undefined, files: [] };
@@ -1961,7 +1976,7 @@ async function makeChatResponseInner(chatBody) {
   }
 
   // non-stream: accumulate
-  const first = await drainUpstreamRound(upResp, new NdjsonTranslator({ declaredTools: sakanaReq.clientToolNames }), undefined, signal);
+  const first = await drainUpstreamRound(upResp, new NdjsonTranslator({ declaredTools: sakanaReq.clientToolNames, promptTokens: inputLedger.tokens }), undefined, signal);
   let text = first.content;
   let reasoning = first.reasoning;
   let finalT = first.t;

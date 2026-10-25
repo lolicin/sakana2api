@@ -1,478 +1,417 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Sakana2API · 高性能 AI 网关与控制台</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐟</text></svg>">
-<script>
-  try {
-    if (localStorage.getItem('sakana_theme') === 'light') document.documentElement.dataset.theme = 'light';
-  } catch {}
-</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sakana 2API · Console</title>
 <style>
 /* ============================================================
-   Sakana 2API — ChatGPT-style design system
-   sidebar + centered content · rounded cards · pill buttons
-   light (#fff / #f9f9f9) · dark (#212121 / #171717)
+   Sakana 2API — Claude 风格设计系统 (2026-10 全量重构)
+   暖纸底色 / 衬线标题 / 陶土色强调 / 极简边框;亮暗双主题。
    ============================================================ */
-:root {
-  --bg: #ffffff;
-  --bg-2: #f9f9f9;
-  --bg-3: #f1f1f1;
-  --ink: #0d0d0d;
-  --ink-2: #353740;
-  --text: #0d0d0d;
-  --text-muted: #6e6e80;
-  --text-dim: #a2a2ab;
-  --line: rgba(13, 13, 13, .10);
-  --line-strong: rgba(13, 13, 13, .22);
-  --accent: #10a37f;
-  --accent-hover: #0d8a6c;
-  --ok: #10a37f;
-  --warn: #f2a711;
-  --err: #ef4146;
-  --card: #ffffff;
-  --input-bg: #ffffff;
-  --sidebar-bg: #f9f9f9;
-  --hover: #ececf1;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .05);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, .08);
-  --shadow-lg: 0 12px 40px rgba(0, 0, 0, .12);
-  --serif: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Hiragino Sans', 'Microsoft YaHei', sans-serif;
-  --sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Hiragino Sans', 'Microsoft YaHei', sans-serif;
-  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
-  --r: 12px;
-  --r-sm: 8px;
-  --sidebar-w: 260px;
-}
-html[data-theme="dark"] {
-  --bg: #212121;
-  --bg-2: #171717;
-  --bg-3: #2f2f2f;
-  --ink: #ececec;
-  --ink-2: #cfcfd4;
-  --text: #ececec;
-  --text-muted: #a0a0ab;
-  --text-dim: #6f6f79;
-  --line: rgba(255, 255, 255, .09);
-  --line-strong: rgba(255, 255, 255, .2);
-  --accent: #19c59d;
-  --accent-hover: #10a37f;
-  --ok: #19c59d;
-  --warn: #f2a711;
-  --err: #ef4146;
-  --card: #2f2f2f;
-  --input-bg: #2f2f2f;
-  --sidebar-bg: #171717;
-  --hover: #2f2f2f;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .3);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, .35);
-  --shadow-lg: 0 12px 40px rgba(0, 0, 0, .5);
-}
-/* legacy hook: body.theme-light mirrors the light tokens */
-body.theme-light {
-  --bg: #ffffff; --bg-2: #f9f9f9; --bg-3: #f1f1f1;
-  --ink: #0d0d0d; --ink-2: #353740; --text: #0d0d0d;
-  --text-muted: #6e6e80; --text-dim: #a2a2ab;
-  --line: rgba(13,13,13,.10); --line-strong: rgba(13,13,13,.22);
-  --accent: #10a37f; --ok: #10a37f; --warn: #f2a711; --err: #ef4146;
-  --card: #ffffff; --input-bg: #ffffff; --sidebar-bg: #f9f9f9; --hover: #ececf1;
-  --shadow-sm: 0 1px 2px rgba(0,0,0,.05); --shadow-md: 0 4px 16px rgba(0,0,0,.08); --shadow-lg: 0 12px 40px rgba(0,0,0,.12);
-}
-
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 [hidden] { display: none !important; }
-* { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; }
+
+:root {
+  --font-serif: Georgia, "Times New Roman", "Songti SC", "Noto Serif SC", serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+}
+body.theme-light {
+  --bg: #FAF9F5; --bg-raise: #F0EEE6; --card: #FFFFFF; --card-soft: #F5F4EF;
+  --ink: #1F1E1D; --text-main: #262523; --text-dim: #6E6A61; --text-muted: #8A867C;
+  --border-subtle: #E8E4D9; --line: #E2DED2;
+  --accent: #D97757; --accent-strong: #C15F3C; --accent-soft: #F7E8E0; --accent-ink: #9C4A2F;
+  --ok: #7A9B76; --ok-soft: #EAF0E7; --warn: #C29B4A; --danger: #B85C4C; --danger-soft: #F7E9E5;
+  --info: #6A8BA4; --info-soft: #E9EFF4; --blue: #5E7C99; --cyan: #5B8E8A;
+  --shadow-sm: 0 1px 2px rgba(31,30,29,.05); --shadow-md: 0 4px 16px rgba(31,30,29,.08);
+  --shadow-lg: 0 12px 40px rgba(31,30,29,.16);
+}
+body.theme-dark {
+  --bg: #1B1A18; --bg-raise: #141311; --card: #242320; --card-soft: #2B2A26;
+  --ink: #F5F2E9; --text-main: #EDE9DD; --text-dim: #A8A397; --text-muted: #7E7A6F;
+  --border-subtle: #38352F; --line: #403D36;
+  --accent: #E0825F; --accent-strong: #E88F6F; --accent-soft: #3A2B23; --accent-ink: #F0B49B;
+  --ok: #8FB18A; --ok-soft: #252E23; --warn: #D2AC62; --danger: #D97E6C; --danger-soft: #39241F;
+  --info: #86A7BE; --info-soft: #22303B; --blue: #7FA0C0; --cyan: #7FB0AB;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.3); --shadow-md: 0 4px 16px rgba(0,0,0,.35);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,.5);
+}
+html, body { height: 100%; }
 body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--sans);
-  font-size: 14px;
-  line-height: 1.65;
-  -webkit-font-smoothing: antialiased;
-  min-height: 100vh;
+  font-family: var(--font-sans); background: var(--bg); color: var(--text-main);
+  font-size: 13.5px; line-height: 1.65; -webkit-font-smoothing: antialiased;
 }
+a { color: var(--accent-strong); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { font-family: var(--font-mono); font-size: .92em; background: var(--bg-raise); padding: 1px 6px; border-radius: 6px; }
+.serif { font-family: var(--font-serif); }
+.mono { font-family: var(--font-mono) !important; }
 
-::selection { background: color-mix(in srgb, var(--accent) 22%, transparent); }
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 99px; }
-::-webkit-scrollbar-track { background: transparent; }
-
-a { color: var(--text); text-decoration: none; }
-h1, h2, h3 { font-weight: 600; }
-code, pre, .mono, .json-viewer, .tree-method { font-family: var(--mono); }
-
-/* ---------------- layout ---------------- */
-.sidebar {
-  position: fixed; left: 0; top: 0; bottom: 0; width: var(--sidebar-w);
-  display: flex; flex-direction: column;
-  background: var(--sidebar-bg);
-  border-right: 1px solid var(--line);
-  z-index: 60;
-  transition: transform .25s ease;
-}
-.main {
-  margin-left: var(--sidebar-w);
-  min-height: 100vh;
-  display: flex; flex-direction: column;
-  transition: margin-left .2s;
-}
-body.sidebar-collapsed .sidebar { transform: translateX(-100%); }
-body.sidebar-collapsed .main { margin-left: 0; }
-
-/* brand */
-.brand-area {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 14px 10px;
-}
-.brand-left { display: flex; align-items: center; gap: 9px; cursor: pointer; padding: 4px 6px; border-radius: var(--r-sm); }
-.brand-left:hover { background: var(--hover); }
-.brand-logo {
-  width: 28px; height: 28px; border-radius: 50%;
-  background: var(--ink); color: var(--bg);
-  display: flex; align-items: center; justify-content: center; font-size: 15px;
-}
-.brand-name { font-size: 15px; font-weight: 600; color: var(--ink); letter-spacing: .01em; }
-.brand-name span { color: var(--text-muted); font-weight: 400; }
-.brand-ext { font-size: 15px; opacity: .5; transition: opacity .15s; padding: 4px; border-radius: 6px; }
-.brand-ext:hover { opacity: 1; background: var(--hover); }
-
-.sidebar-nav { flex: 1; overflow-y: auto; padding: 4px 8px 8px; }
-.nav-btn, .tree-item {
-  display: flex; align-items: center; gap: 10px; width: 100%;
-  padding: 8px 10px; margin: 1px 0;
-  background: none; border: 0; cursor: pointer;
-  color: var(--text-muted);
-  font-family: var(--sans); font-size: 13.5px; font-weight: 450;
-  text-align: left; border-radius: 10px;
-  transition: background .12s, color .12s;
-}
-.nav-btn:hover, .tree-item:hover { background: var(--hover); color: var(--ink); }
-.nav-btn.active { background: var(--hover); color: var(--ink); font-weight: 600; }
-.nav-btn .nav-icon { width: 18px; text-align: center; font-size: 14px; }
-.nav-badge {
-  margin-left: auto; font-size: 9.5px; font-weight: 600; letter-spacing: .04em;
-  color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent);
-  padding: 1px 7px; border-radius: 999px; line-height: 15px;
-}
-.nav-section-title {
-  padding: 14px 10px 4px;
-  font-size: 11px; font-weight: 600; color: var(--text-dim); letter-spacing: .02em;
-}
-.tree-item { padding: 6px 10px 6px 18px; font-size: 12.5px; }
-.tree-method {
-  margin-left: auto; font-size: 9.5px; font-weight: 600; letter-spacing: .05em;
-  color: var(--text-dim); background: var(--bg-3);
-  padding: 1px 6px; border-radius: 5px;
-}
-.sidebar-footer {
-  border-top: 1px solid var(--line);
-  padding: 10px 14px;
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-}
-.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); display: inline-block; }
-.status-dot.ok { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 15%, transparent); }
-.status-dot.err { background: var(--err); }
-
-/* ---------------- topbar ---------------- */
-.topbar {
-  display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  padding: 14px 24px;
-  border-bottom: 1px solid var(--line);
-  background: var(--bg);
-  position: sticky; top: 0; z-index: 66;
-}
-.topbar-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.topbar-title { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 600; color: var(--ink); }
-.badge-tag {
-  font-family: var(--mono); font-size: 10.5px; letter-spacing: .04em;
-  color: var(--text-muted); background: var(--bg-2);
-  padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line);
-}
-.topbar-subtitle { font-size: 12px; color: var(--text-dim); }
-.mobile-menu-btn {
-  display: none; background: none; border: 0;
-  color: var(--ink); font-size: 17px; padding: 6px 8px; cursor: pointer; border-radius: 8px;
-}
-.mobile-menu-btn:hover { background: var(--hover); }
-
-/* ---------------- buttons ---------------- */
+/* ---- buttons & inputs ------------------------------------ */
 .btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  background: transparent; color: var(--ink);
-  border: 1px solid var(--line-strong);
-  padding: 8px 15px; font-size: 13px; font-weight: 500;
-  font-family: var(--sans); cursor: pointer; border-radius: 999px;
-  transition: background .12s, border-color .12s, box-shadow .12s;
+  font: inherit; font-size: 12.5px; font-weight: 600; color: var(--text-main);
+  background: var(--card); border: 1px solid var(--border-subtle); border-radius: 999px;
+  padding: 7px 16px; cursor: pointer; transition: all .15s ease; white-space: nowrap;
 }
-.btn:hover { background: var(--hover); }
-.btn.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-.btn.primary:hover { background: var(--ink-2); border-color: var(--ink-2); }
-.btn.danger { color: var(--err); border-color: color-mix(in srgb, var(--err) 40%, transparent); }
-.btn.danger:hover { background: color-mix(in srgb, var(--err) 8%, transparent); }
-.btn.sm { padding: 5px 12px; font-size: 12px; }
-.btn.ghost { border-color: transparent; }
-.btn.ghost:hover { background: var(--hover); }
-.btn.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-.btn:disabled { opacity: .4; cursor: not-allowed; }
-.btn-group { display: inline-flex; background: var(--bg-2); border: 1px solid var(--line); border-radius: 999px; padding: 2px; }
+.btn:hover { border-color: var(--accent); color: var(--accent-strong); box-shadow: var(--shadow-sm); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #FFF8F2; }
+.btn.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); color: #FFF; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--text-dim); }
+.btn.ghost:hover { background: var(--bg-raise); border-color: transparent; color: var(--text-main); box-shadow: none; }
+.btn.danger { color: var(--danger); }
+.btn.danger:hover { border-color: var(--danger); background: var(--danger-soft); }
+.btn.sm { font-size: 11.5px; padding: 4px 12px; }
+.btn.active { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.input-text {
+  font: inherit; font-size: 12.5px; color: var(--text-main); background: var(--card);
+  border: 1px solid var(--border-subtle); border-radius: 10px; padding: 8px 12px; outline: none; min-width: 0;
+}
+.input-text:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+select.chat-select {
+  font: inherit; font-size: 12px; color: var(--text-dim); background: transparent;
+  border: 1px solid transparent; border-radius: 8px; padding: 4px 6px; cursor: pointer; outline: none;
+}
+select.chat-select:hover { border-color: var(--border-subtle); background: var(--card); }
+select.chat-select option { color: var(--text-main); background: var(--card); }
+.btn-group { display: inline-flex; background: var(--bg-raise); border-radius: 999px; padding: 3px; gap: 2px; }
 .btn-group-btn {
-  background: transparent; border: 0; color: var(--text-muted);
-  padding: 5px 13px; font-size: 12px; font-weight: 500; cursor: pointer;
-  border-radius: 999px; font-family: var(--sans);
+  font: inherit; font-size: 11px; font-weight: 600; color: var(--text-dim); border: none; background: transparent;
+  border-radius: 999px; padding: 4px 12px; cursor: pointer; transition: all .15s;
 }
 .btn-group-btn.active { background: var(--card); color: var(--ink); box-shadow: var(--shadow-sm); }
 
-.pill {
-  display: inline-block; font-size: 10.5px; font-weight: 600; letter-spacing: .03em;
-  border: 1px solid var(--line); color: var(--text-muted);
-  padding: 2px 9px; border-radius: 999px; line-height: 16px;
+/* ---- admin lock ------------------------------------------ */
+.admin-lock-overlay {
+  position: fixed; inset: 0; z-index: 300; background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(10px); display: flex; align-items: center; justify-content: center; padding: 20px;
 }
-.pill.on { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); border-color: transparent; }
-.pill.off { color: var(--text-dim); }
-.pill.info, .pill.blue, .pill.c-amber, .pill.c-blue, .pill.c-cyan, .pill.c-emerald { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); border-color: transparent; }
+.admin-lock-card {
+  background: var(--card); border: 1px solid var(--border-subtle); border-radius: 20px;
+  box-shadow: var(--shadow-lg); padding: 36px 40px; max-width: 420px; width: 100%; text-align: center;
+}
+.admin-lock-card h2 { font-family: var(--font-serif); font-size: 20px; margin-bottom: 6px; }
 
-.input-text, .chat-textarea, select.chat-select {
-  background: var(--input-bg); color: var(--text);
-  border: 1px solid var(--line); border-radius: 10px;
-  padding: 8px 13px; font-size: 13px; font-family: var(--sans);
-  outline: none; transition: border-color .12s, box-shadow .12s;
+/* ---- app frame ------------------------------------------- */
+.sidebar {
+  position: fixed; top: 0; left: 0; bottom: 0; width: 236px; z-index: 60;
+  background: var(--bg-raise); border-right: 1px solid var(--border-subtle);
+  display: flex; flex-direction: column; padding: 18px 14px; overflow-y: auto;
 }
-.input-text:focus, .chat-textarea:focus, select.chat-select:focus {
-  border-color: var(--line-strong);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+.brand-area { display: flex; align-items: center; justify-content: space-between; padding: 2px 6px 16px; }
+.brand-left { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.brand-logo {
+  width: 34px; height: 34px; border-radius: 10px; background: var(--accent-soft);
+  display: flex; align-items: center; justify-content: center; font-size: 18px;
 }
-textarea.chat-textarea { width: 100%; resize: none; line-height: 1.7; }
+.brand-name { font-family: var(--font-serif); font-size: 17px; font-weight: 700; color: var(--ink); letter-spacing: .2px; }
+.brand-name span { color: var(--accent-strong); }
+.brand-ext { color: var(--text-muted); font-size: 15px; }
+.sidebar-nav { display: flex; flex-direction: column; gap: 2px; }
+.nav-btn {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  font: inherit; font-size: 13px; font-weight: 500; color: var(--text-dim);
+  background: transparent; border: none; border-radius: 10px; padding: 8px 10px; cursor: pointer;
+  transition: all .15s; position: relative;
+}
+.nav-btn:hover { background: var(--card-soft); color: var(--text-main); }
+.nav-btn.active { background: var(--card); color: var(--ink); font-weight: 600; box-shadow: var(--shadow-sm); }
+.nav-btn.active::before {
+  content: ''; position: absolute; left: -14px; top: 20%; bottom: 20%; width: 3px;
+  border-radius: 3px; background: var(--accent);
+}
+.nav-icon { width: 20px; text-align: center; flex: none; }
+.nav-badge {
+  margin-left: auto; font-size: 9.5px; font-weight: 700; letter-spacing: .5px;
+  background: var(--accent-soft); color: var(--accent-ink); border-radius: 999px; padding: 1px 8px;
+}
+.nav-section-title {
+  font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--text-muted); padding: 16px 10px 6px;
+}
+.nav-tree-group { display: flex; flex-direction: column; gap: 1px; }
+.tree-item {
+  display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-dim);
+  padding: 6px 10px 6px 40px; border-radius: 8px; cursor: pointer; border: none; background: none; font: inherit; width: 100%; text-align: left;
+}
+.tree-item:hover { background: var(--card-soft); color: var(--text-main); text-decoration: none; }
+.tree-method { font-family: var(--font-mono); font-size: 9px; font-weight: 700; color: var(--ok); background: var(--ok-soft); border-radius: 4px; padding: 0 5px; }
+.sidebar-footer { margin-top: auto; padding-top: 14px; border-top: 1px solid var(--line); }
+.sidebar-footer-text { font-size: 11px; color: var(--text-muted); }
+.sidebar-footer-text.sm { font-size: 10px; }
+.sidebar-status-wrap { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); flex: none; }
+.status-dot.ok { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.status-dot.err { background: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
+.sidebar-backdrop { position: fixed; inset: 0; z-index: 55; background: rgba(20,19,17,.4); }
+.badge-tag {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600; color: var(--accent-ink);
+  background: var(--accent-soft); border-radius: 999px; padding: 3px 10px; white-space: nowrap;
+}
 
-/* ---------------- content & cards ---------------- */
-.content-viewport { padding: 24px 28px 60px; flex: 1; max-width: 1180px; width: 100%; margin: 0 auto; }
-.section-title {
-  font-size: 19px; font-weight: 600; color: var(--ink);
-  margin: 26px 0 14px; display: flex; align-items: baseline; gap: 10px;
+.main { margin-left: 236px; min-height: 100vh; display: flex; flex-direction: column; }
+.topbar {
+  position: sticky; top: 0; z-index: 40; display: flex; align-items: center; gap: 14px;
+  padding: 16px 32px; background: color-mix(in srgb, var(--bg) 85%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--border-subtle);
 }
-.p-title { font-size: 16px; font-weight: 600; color: var(--ink); margin: 0; }
+.mobile-menu-btn { display: none; }
+.topbar-left { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.topbar-title { font-family: var(--font-serif); font-size: 21px; font-weight: 700; color: var(--ink); white-space: nowrap; }
+.topbar-subtitle { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.content-viewport { flex: 1; padding: 26px 32px 60px; max-width: 1280px; width: 100%; margin: 0 auto; }
+
+/* ---- cards & generic -------------------------------------- */
 .card-panel {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  padding: 18px 20px;
-  box-shadow: var(--shadow-sm);
+  background: var(--card); border: 1px solid var(--border-subtle); border-radius: 16px;
+  box-shadow: var(--shadow-sm); padding: 20px 22px;
 }
-.metric-card, .chart-card, .heatmap-card {
-  background: var(--card); border: 1px solid var(--line); border-radius: 16px;
-  padding: 16px 18px; box-shadow: var(--shadow-sm);
-}
-.metric-card { display: flex; flex-direction: column; gap: 3px; }
-.metric-head { display: flex; align-items: center; justify-content: space-between; }
-.metric-icon { font-size: 14px; opacity: .7; }
-.metric-label { font-size: 11px; font-weight: 500; color: var(--text-dim); letter-spacing: .02em; }
-.metric-val { font-size: 27px; font-weight: 600; color: var(--ink); line-height: 1.2; }
-.metric-sub { font-size: 11.5px; color: var(--text-dim); }
-.dash-grid-top {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  gap: 12px;
-}
-.ops-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-top: 12px; }
-.ops-item { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 12px 16px; display: flex; flex-direction: column; gap: 3px; }
-.ops-item .ops-label { display: block; }
-.ops-item .ops-val { display: block; }
-.ops-label { font-size: 11px; color: var(--text-dim); font-weight: 500; }
-.ops-val { font-size: 18px; font-weight: 600; color: var(--ink); }
-
-.metric-bar { height: 4px; background: var(--bg-3); border-radius: 99px; position: relative; overflow: hidden; margin-top: 8px; }
-.metric-bar-fill { position: absolute; inset: 0 auto 0 0; background: var(--accent); border-radius: 99px; }
-
-/* tables */
-.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--card); box-shadow: var(--shadow-sm); }
+.section-title { font-family: var(--font-serif); font-size: 19px; font-weight: 700; color: var(--ink); margin: 6px 0 16px; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--border-subtle); border-radius: 14px; background: var(--card); }
 table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-th {
-  text-align: left; font-weight: 600; font-size: 11px; color: var(--text-dim);
-  padding: 10px 14px; border-bottom: 1px solid var(--line);
-  white-space: nowrap; background: var(--bg-2);
+th { text-align: left; font-size: 10.5px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--text-muted); padding: 12px 14px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 11px 14px; border-bottom: 1px solid var(--line); color: var(--text-main); vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--card-soft); }
+.json-viewer {
+  font-family: var(--font-mono); font-size: 11.5px; line-height: 1.7; color: var(--text-main);
+  background: var(--bg-raise); border: 1px solid var(--line); border-radius: 12px;
+  padding: 12px 14px; max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-all;
 }
-td { padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
-tr:last-child td { border-bottom: 0; }
-tr:hover td { background: var(--hover); }
-
-/* ---------------- model matrix ---------------- */
-.model-matrix-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
-.model-card {
-  background: var(--card); border: 1px solid var(--line); border-radius: 16px;
-  padding: 18px 20px; transition: box-shadow .15s, border-color .15s;
-  display: flex; flex-direction: column; justify-content: space-between;
+.pill {
+  display: inline-flex; align-items: center; font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 2px 10px;
+  background: var(--bg-raise); color: var(--text-dim);
 }
-.model-card:hover { box-shadow: var(--shadow-md); border-color: var(--line-strong); }
-.model-card-id { font-family: var(--mono); font-size: 13.5px; font-weight: 600; color: var(--ink); }
-.model-card-desc { font-size: 12.5px; color: var(--text-muted); line-height: 1.55; margin-top: 6px; }
-.model-card-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-.model-card .btn { border-radius: 999px; }
+.pill.on, .pill.blue { background: var(--info-soft); color: var(--info); }
+.pill.cyan { background: #E5F0EF; color: var(--cyan); }
+body.theme-dark .pill.cyan { background: #22302E; }
+.pill.info { background: var(--accent-soft); color: var(--accent-ink); }
+.pill.off { background: var(--bg-raise); color: var(--text-muted); }
+.pill.rev, .pill.danger { background: var(--danger-soft); color: var(--danger); }
+.del-btn, .rm-btn {
+  font: inherit; font-size: 11px; color: var(--danger); background: none; border: 1px solid transparent;
+  border-radius: 7px; padding: 2px 8px; cursor: pointer;
+}
+.del-btn:hover, .rm-btn:hover { border-color: var(--danger); background: var(--danger-soft); }
 
-/* ---------------- chat ---------------- */
-.chat-layout { display: flex; gap: 0; height: calc(100vh - 130px); border-radius: 18px; overflow: hidden; border: 1px solid var(--line); background: var(--card); box-shadow: var(--shadow-sm); }
+/* ---- dashboard -------------------------------------------- */
+.dash-grid-top { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 14px; }
+.metric-card {
+  background: var(--card); border: 1px solid var(--border-subtle); border-radius: 16px;
+  padding: 16px 18px; box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 6px;
+}
+.metric-head { display: flex; align-items: center; gap: 8px; }
+.metric-label { font-size: 11px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: var(--text-muted); }
+.metric-icon { font-size: 14px; }
+.metric-val { font-family: var(--font-serif); font-size: 26px; font-weight: 700; color: var(--ink); line-height: 1.1; }
+.metric-sub { font-size: 11px; color: var(--text-muted); }
+.metric-bar { height: 4px; border-radius: 4px; background: var(--bg-raise); overflow: hidden; margin-top: 2px; }
+.metric-bar-fill { height: 100%; border-radius: 4px; background: var(--accent); transition: width .4s; }
+.c-emerald .metric-bar-fill { background: var(--ok); }
+.c-cyan .metric-bar-fill { background: var(--cyan); }
+.c-blue .metric-bar-fill { background: var(--info); }
+.c-amber .metric-bar-fill { background: var(--warn); }
+.grouped-stats-banner {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 14px;
+}
+.group-stat-item { background: var(--card); border: 1px solid var(--border-subtle); border-radius: 14px; padding: 14px 16px; }
+.group-stat-title { font-size: 10.5px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px; }
+.group-stat-row { display: flex; align-items: baseline; gap: 8px; }
+.group-stat-num { font-family: var(--font-serif); font-size: 20px; font-weight: 700; color: var(--ink); }
+.group-stat-sub { font-size: 11px; color: var(--text-muted); }
+.ops-strip {
+  display: flex; flex-wrap: wrap; gap: 0; background: var(--card); border: 1px solid var(--border-subtle);
+  border-radius: 14px; padding: 12px 6px; margin-bottom: 14px; box-shadow: var(--shadow-sm);
+}
+.ops-item { flex: 1; min-width: 110px; text-align: center; padding: 4px 10px; border-right: 1px solid var(--line); }
+.ops-item:last-child { border-right: none; }
+.ops-label { font-size: 10px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--text-muted); }
+.ops-val { font-family: var(--font-mono); font-size: 15px; font-weight: 600; color: var(--text-main); margin-top: 2px; }
+.heatmap-card { background: var(--card); border: 1px solid var(--border-subtle); border-radius: 16px; padding: 18px 20px; margin-bottom: 14px; box-shadow: var(--shadow-sm); }
+.heatmap-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.heatmap-title { font-family: var(--font-serif); font-size: 15px; font-weight: 700; color: var(--ink); }
+.heatmap-grid { display: flex; flex-wrap: wrap; gap: 3px; }
+.heatmap-grid div { width: 11px; height: 11px; border-radius: 3px; background: var(--bg-raise); }
+.chart-card { background: var(--card); border: 1px solid var(--border-subtle); border-radius: 16px; padding: 18px 20px; margin-bottom: 14px; box-shadow: var(--shadow-sm); }
+.chart-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.chart-metrics-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.chart-metric-pill { font-size: 11px; color: var(--text-dim); background: var(--bg-raise); border-radius: 999px; padding: 4px 12px; }
+.chart-canvas-container { position: relative; height: 240px; }
+.chart-canvas-container canvas { width: 100%; height: 100%; }
+.chart-legend { display: flex; gap: 16px; margin-top: 10px; flex-wrap: wrap; }
+.chart-legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); }
+.chart-legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+.podium-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
+.podium-badge { font-size: 22px; }
+.podium-name { font-family: var(--font-serif); font-weight: 700; font-size: 14px; color: var(--ink); margin: 4px 0 2px; }
+.podium-stat { font-size: 11.5px; color: var(--text-muted); }
+.podium-grid > div { background: var(--card); border: 1px solid var(--border-subtle); border-radius: 14px; padding: 14px 16px; text-align: center; }
+
+/* ---- chat -------------------------------------------------- */
+.chat-layout { display: flex; height: calc(100vh - 120px); margin: -10px -12px -34px; }
 .chat-sidebar {
-  width: 258px; display: flex; flex-direction: column;
-  background: var(--sidebar-bg); border-right: 1px solid var(--line);
+  width: 240px; flex: none; border-right: 1px solid var(--border-subtle); padding: 14px 12px;
+  display: flex; flex-direction: column; gap: 6px; overflow-y: auto;
 }
-.chat-top-header { padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
-.chat-history-list { flex: 1; overflow-y: auto; padding: 4px 8px; }
-.chat-history-item { padding: 8px 10px; border-radius: 10px; cursor: pointer; display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--text-muted); margin: 1px 0; }
-.chat-history-item.active { color: var(--ink); background: var(--hover); font-weight: 500; }
-.chat-history-item:hover { background: var(--hover); }
-.chat-history-item .del-btn { opacity: 0; border: 0; background: none; color: var(--text-dim); cursor: pointer; border-radius: 6px; padding: 1px 5px; }
-.chat-history-item:hover .del-btn { opacity: 1; }
-.chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
-.chat-viewport { flex: 1; overflow-y: auto; padding: 24px 24px 10px; }
-.chat-viewport > * { max-width: 820px; margin-left: auto; margin-right: auto; }
-.chat-hero { text-align: center; padding: 64px 0 28px; }
-.chat-hero-title { font-size: 26px; font-weight: 600; color: var(--ink); }
-.chat-hero-desc { color: var(--text-muted); font-size: 13px; margin-top: 8px; }
-.chat-suggestions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; justify-content: center; }
+.preset-card {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px;
+  border: 1px solid transparent; cursor: pointer; font-size: 12.5px; color: var(--text-dim); transition: all .15s;
+}
+.preset-card:hover { background: var(--card-soft); color: var(--text-main); }
+.preset-card.active { background: var(--card); border-color: var(--border-subtle); color: var(--ink); box-shadow: var(--shadow-sm); }
+.p-title { font-weight: 600; }
+.card-list { display: flex; flex-direction: column; gap: 4px; }
+.chat-history-list { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; flex: 1; min-height: 60px; }
+.chat-history-list .tree-item { padding-left: 10px; }
+.chat-drawer-backdrop { position: fixed; inset: 0; z-index: 45; background: rgba(20,19,17,.4); }
+.chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.chat-top-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 18px; border-bottom: 1px solid var(--border-subtle);
+}
+.chat-viewport { flex: 1; overflow-y: auto; padding: 28px 20px; scroll-behavior: smooth; }
+.chat-hero { max-width: 620px; margin: 8vh auto 0; text-align: center; }
+.chat-hero-art { font-size: 44px; margin-bottom: 14px; }
+.chat-hero-title { font-family: var(--font-serif); font-size: 26px; font-weight: 700; color: var(--ink); margin-bottom: 8px; }
+.chat-hero-desc { font-size: 13px; color: var(--text-dim); margin-bottom: 22px; }
+.chat-suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 .suggestion-chip {
-  border: 1px solid var(--line); background: var(--card); color: var(--text-muted);
-  font-size: 12.5px; padding: 7px 14px; border-radius: 999px; cursor: pointer;
-  box-shadow: var(--shadow-sm); transition: border-color .12s, color .12s;
+  font-size: 12px; color: var(--text-dim); background: var(--card); border: 1px solid var(--border-subtle);
+  border-radius: 999px; padding: 7px 16px; cursor: pointer; transition: all .15s;
 }
-.suggestion-chip:hover { color: var(--ink); border-color: var(--line-strong); }
-.msg-row { display: flex; gap: 12px; margin: 18px 0; }
+.suggestion-chip:hover { border-color: var(--accent); color: var(--accent-strong); box-shadow: var(--shadow-sm); }
+#chatMessages { display: flex; flex-direction: column; gap: 18px; max-width: 760px; margin: 0 auto; }
+.msg-row { display: flex; gap: 12px; }
+.msg-row.user { flex-direction: row-reverse; }
 .msg-avatar {
-  width: 28px; height: 28px; border-radius: 50%; flex: none;
-  background: var(--bg-3); display: flex; align-items: center; justify-content: center; font-size: 13px;
-  border: 1px solid var(--line);
+  width: 30px; height: 30px; border-radius: 10px; flex: none; display: flex; align-items: center;
+  justify-content: center; font-size: 15px; background: var(--bg-raise); margin-top: 2px;
 }
-.msg-bubble { max-width: 76%; padding: 12px 16px; font-size: 14px; line-height: 1.75; }
-.msg-row.user { justify-content: flex-end; }
-.msg-row.user .msg-bubble { background: var(--bg-2); color: var(--text); border-radius: 24px; padding: 10px 18px; }
-.msg-row.assistant .msg-bubble { background: transparent; padding: 4px 2px; }
-.msg-meta { font-size: 10.5px; color: var(--text-dim); margin-top: 6px; }
-.thinking-box {
-  background: var(--bg-2); border-radius: 10px; padding: 8px 12px; margin: 6px 0;
-  font-size: 12px; color: var(--text-muted); white-space: pre-wrap;
+.msg-content-wrap { max-width: 86%; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.msg-row.user .msg-content-wrap { align-items: flex-end; }
+.msg-meta { font-size: 10.5px; color: var(--text-muted); padding: 0 4px; display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+.msg-bubble {
+  background: var(--card); border: 1px solid var(--border-subtle); border-radius: 16px;
+  padding: 12px 16px; box-shadow: var(--shadow-sm); overflow-wrap: break-word;
 }
-.typing-cursor::after { content: '▍'; animation: blink 1s steps(1) infinite; color: var(--accent); }
-@keyframes blink { 50% { opacity: 0; } }
-.chat-bottom-bar { padding: 12px 20px 14px; background: var(--bg); }
-.chat-bottom-bar > * { max-width: 820px; margin-left: auto; margin-right: auto; }
-.chat-input-card, .chat-textarea {
-  border: 1px solid var(--line-strong); border-radius: 24px; background: var(--input-bg);
-  box-shadow: var(--shadow-md);
+.msg-row.user .msg-bubble { background: var(--accent-soft); border-color: transparent; }
+.msg-bubble pre {
+  background: var(--bg-raise); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; overflow-x: auto; font-family: var(--font-mono); font-size: 12px; margin: 8px 0;
 }
-.chat-controls-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
-.chat-controls-left { display: flex; gap: 8px; align-items: center; flex: 1; }
-.chat-controls-row .btn, .chat-controls-row .btn.primary {
-  border-radius: 999px;
-}
-.attach-chip { display: inline-flex; gap: 6px; align-items: center; background: var(--bg-2); border: 1px solid var(--line); padding: 3px 10px; font-size: 11px; color: var(--text-muted); border-radius: 999px; }
-.attachments-preview { display: flex; flex-wrap: wrap; gap: 8px; }
-.citation-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.citation-tag { font-size: 10.5px; background: var(--bg-2); color: var(--text-muted); padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); }
-.chat-drawer-backdrop, .sidebar-backdrop { display: none; }
-.sidebar.drawer-open { transform: translateX(0); }
-.sidebar-backdrop:not([hidden]) {
-  display: block; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 55;
-}
-.chat-sidebar.chat-drawer-open {
-  transform: translateX(0); position: fixed; z-index: 70; top: 0; bottom: 0; left: 0;
-  border-radius: 0;
-}
-.chat-drawer-backdrop:not([hidden]) {
-  display: block; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 65;
-}
-
-/* ---------------- docs / code ---------------- */
+.msg-bubble code { background: var(--bg-raise); }
+.msg-bubble pre code { background: none; padding: 0; }
 .code-header {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 8px 14px;
-  font-size: 11px; font-weight: 600; color: var(--text-dim);
-  background: var(--bg-2); border-radius: 10px 10px 0 0; border: 1px solid var(--line); border-bottom: 0;
+  display: flex; align-items: center; justify-content: space-between; font-size: 10.5px; color: var(--text-muted);
+  background: var(--bg-raise); border: 1px solid var(--line); border-bottom: none;
+  border-radius: 10px 10px 0 0; padding: 5px 12px; font-family: var(--font-mono);
 }
-pre, .json-viewer {
-  background: var(--bg-2); border: 1px solid var(--line); border-radius: 0 0 10px 10px;
-  padding: 14px 16px; overflow-x: auto; font-size: 12.5px; line-height: 1.7;
-  color: var(--ink-2);
+.code-header + pre { border-radius: 0 0 10px 10px; margin-top: 0; }
+.copy-btn { font: inherit; font-size: 10.5px; color: var(--text-dim); background: none; border: none; cursor: pointer; }
+.copy-btn:hover { color: var(--accent-strong); }
+.thinking-box {
+  font-size: 12px; color: var(--text-dim); background: var(--card-soft);
+  border-left: 3px solid var(--accent); border-radius: 0 10px 10px 0; padding: 8px 12px; margin-bottom: 4px;
 }
-pre:not(.json-viewer) { border-radius: 10px; }
-.copy-btn { background: var(--card); border: 1px solid var(--line); color: var(--text-muted); font-size: 10.5px; font-weight: 500; padding: 3px 10px; cursor: pointer; border-radius: 7px; }
-.copy-btn:hover { color: var(--ink); border-color: var(--line-strong); }
+.thinking-text { white-space: pre-wrap; }
+.citation-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.citation-tag {
+  font-size: 10.5px; color: var(--info); background: var(--info-soft); border-radius: 999px; padding: 2px 10px;
+  text-decoration: none; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.citation-tag:hover { text-decoration: none; filter: brightness(.95); }
+.attach-chip {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-dim);
+  background: var(--bg-raise); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; margin: 2px;
+}
+.attachment-placeholder {
+  border: 1.5px dashed var(--border-subtle); border-radius: 12px; padding: 14px; text-align: center;
+  color: var(--text-muted); font-size: 12px; background: var(--card-soft);
+}
+.chat-bottom-bar { padding: 12px 20px 18px; border-top: 1px solid var(--border-subtle); }
+.active-card-bar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--card); border: 1px solid var(--border-subtle); border-radius: 12px; margin-bottom: 8px; font-size: 12px; }
+.chat-input-card {
+  max-width: 760px; margin: 0 auto; background: var(--card); border: 1px solid var(--border-subtle);
+  border-radius: 18px; box-shadow: var(--shadow-md); padding: 10px 14px 8px;
+}
+.chat-input-card:focus-within { border-color: var(--accent); }
+.attachments-preview { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 2px 8px; }
+.chat-textarea {
+  width: 100%; border: none; outline: none; resize: none; background: transparent;
+  font: inherit; font-size: 14px; color: var(--text-main); line-height: 1.6; padding: 6px 2px; max-height: 180px;
+}
+.chat-textarea::placeholder { color: var(--text-muted); }
+.chat-controls-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 4px; }
+.chat-controls-left { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; }
+.toggle-btn {
+  font: inherit; font-size: 12px; color: var(--text-dim); background: none; border: none;
+  border-radius: 8px; padding: 4px 10px; cursor: pointer;
+}
+.toggle-btn:hover { background: var(--bg-raise); color: var(--text-main); }
 
-/* ---------------- modal & toast ---------------- */
+/* ---- models matrix ----------------------------------------- */
+.model-matrix-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.model-card { background: var(--card); border: 1px solid var(--border-subtle); border-radius: 16px; padding: 16px 18px; box-shadow: var(--shadow-sm); }
+.model-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.model-card-id { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--ink); }
+.model-card-desc { font-size: 12px; color: var(--text-dim); margin-bottom: 10px; }
+.model-card-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.rate { font-family: var(--font-mono); font-size: 11px; color: var(--ok); font-weight: 700; }
+
+/* ---- modals & toast ---------------------------------------- */
 .modal-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,.4);
-  backdrop-filter: blur(4px);
-  display: flex; align-items: center; justify-content: center; z-index: 200;
+  position: fixed; inset: 0; z-index: 200; background: rgba(20,19,17,.45); backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
 }
 .modal-box {
-  background: var(--card); border: 1px solid var(--line);
-  max-width: 520px; width: calc(100% - 40px); padding: 24px 26px;
-  border-radius: 20px; box-shadow: var(--shadow-lg);
+  background: var(--card); border: 1px solid var(--border-subtle); border-radius: 18px;
+  box-shadow: var(--shadow-lg); padding: 26px 28px; max-width: 480px; width: 100%;
 }
-.modal-title { font-size: 17px; font-weight: 600; color: var(--ink); }
-.modal-desc { font-size: 13px; color: var(--text-muted); margin: 8px 0 16px; }
+.modal-title { font-family: var(--font-serif); font-size: 17px; font-weight: 700; color: var(--ink); margin-bottom: 4px; }
+.modal-desc { font-size: 12.5px; color: var(--text-dim); margin-bottom: 16px; }
 .toast {
-  position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%);
-  background: var(--ink); color: var(--bg);
-  padding: 10px 20px; font-size: 13px; font-weight: 500;
-  z-index: 300; border-radius: 999px; opacity: 0; transition: opacity .2s;
-  max-width: 80vw; box-shadow: var(--shadow-lg);
+  position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(20px); z-index: 400;
+  background: var(--ink); color: var(--bg); font-size: 12.5px; font-weight: 600;
+  border-radius: 999px; padding: 9px 20px; opacity: 0; pointer-events: none; transition: all .25s ease;
+  box-shadow: var(--shadow-lg); max-width: 80vw;
 }
-.toast.show { opacity: 1; }
-.admin-lock-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; z-index: 400; }
-.admin-lock-card { background: var(--card); border: 1px solid var(--line); padding: 28px 30px; max-width: 440px; width: calc(100% - 40px); border-radius: 20px; box-shadow: var(--shadow-lg); }
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
-/* heatmap / podium / grouped stats */
-.grouped-stats-banner { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
-.group-stat-item { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; box-shadow: var(--shadow-sm); }
-.group-stat-title { font-size: 11px; color: var(--text-dim); font-weight: 500; }
-.group-stat-row { display: flex; align-items: baseline; gap: 6px; margin-top: 2px; }
-.group-stat-num { font-size: 22px; font-weight: 600; color: var(--ink); }
-.group-stat-sub { font-size: 11.5px; color: var(--text-dim); }
-.heatmap-grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 4px; }
-.heatmap-grid > div { border-radius: 4px; aspect-ratio: 2 / 1; min-height: 14px; }
-.podium-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
-.podium-badge { font-size: 16px; font-weight: 600; color: var(--ink); }
-.podium-name { font-family: var(--mono); font-size: 12px; color: var(--text-muted); }
+/* ---- docs ---------------------------------------------------- */
+.doc-section h3 { font-family: var(--font-serif); font-size: 17px; color: var(--ink); margin-bottom: 10px; }
+.doc-section p { color: var(--text-dim); margin-bottom: 10px; }
 
-.toggle-btn { background: var(--bg-2); border: 1px solid var(--line); color: var(--text-muted); padding: 5px 12px; cursor: pointer; font-size: 12px; font-weight: 500; border-radius: 999px; }
-.toggle-btn.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-.active-card-bar { background: var(--bg-2); border: 1px solid var(--line); padding: 8px 14px; display: flex; gap: 10px; align-items: center; font-size: 12px; border-radius: 12px; }
-.preset-card { border: 1px solid var(--line); background: var(--card); padding: 14px 16px; cursor: pointer; transition: box-shadow .12s, border-color .12s; border-radius: 14px; }
-.preset-card:hover { border-color: var(--line-strong); box-shadow: var(--shadow-sm); }
-.badge-tag.danger, .text-danger { color: var(--err); }
-.chart-canvas-container { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px; }
-.chart-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-.chart-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--text-muted); }
-.chart-legend-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 5px; }
-.chart-metrics-row { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 10px; font-size: 12px; color: var(--text-muted); }
-.chart-metric-pill { background: var(--bg-2); border-radius: 999px; padding: 4px 12px; }
-
-/* ---------------- responsive ---------------- */
-@media (max-width: 900px) {
-  #btnOpenChatDrawer { display: inline-flex !important; }
-  .sidebar { transform: translateX(-100%); }
+/* ---- responsive ---------------------------------------------- */
+@media (max-width: 1080px) {
+  .dash-grid-top { grid-template-columns: repeat(2, 1fr); }
+  .grouped-stats-banner { grid-template-columns: repeat(2, 1fr); }
+  .podium-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 860px) {
+  .sidebar { left: -250px; transition: left .2s ease; box-shadow: none; }
+  .sidebar.drawer-open { left: 0; box-shadow: var(--shadow-lg); }
   .main { margin-left: 0; }
-  .mobile-menu-btn { display: inline-block; }
-  .topbar { padding: 10px 14px; flex-wrap: wrap; }
-  .topbar-title { font-size: 15px; }
+  .mobile-menu-btn { display: inline-flex !important; }
+  .chat-layout { margin: 0; height: calc(100vh - 150px); }
+  .chat-sidebar { position: fixed; left: -260px; top: 0; bottom: 0; z-index: 50; background: var(--bg); transition: left .2s ease; }
+  .chat-sidebar.chat-drawer-open { left: 0; box-shadow: var(--shadow-lg); }
+  #btnOpenChatDrawer { display: inline-flex !important; }
+  .content-viewport { padding: 18px 16px 40px; }
+  .topbar { padding: 12px 16px; flex-wrap: wrap; gap: 8px; }
   .topbar-subtitle { display: none; }
-  .content-viewport { padding: 16px 12px 50px; }
-  .chat-layout { height: calc(100vh - 150px); }
-  .chat-sidebar { position: fixed; transform: translateX(-100%); transition: transform .25s; z-index: 70; top: 0; bottom: 0; }
-  .msg-bubble { max-width: 88%; }
-  .chat-viewport { padding: 16px 12px 8px; }
-  .chat-viewport > * { max-width: 100%; }
-  .chat-bottom-bar > * { max-width: 100%; }
+  #timeRangeGroup, #btnExportCsv, #btnToggleSidebar { display: none !important; }
 }
-
 </style>
 </head>
-<body>
+<body class="theme-light">
 
-<!-- ================= 全局管理员解锁遮罩 (任意面板 401 时弹出) ================= -->
+<!-- ============ 全局管理员解锁遮罩 (任意面板 401 时弹出) ============ -->
 <div id="globalAdminLock" class="admin-lock-overlay" hidden>
   <div class="admin-lock-card">
-    <div style="font-size:36px;margin-bottom:10px">🔐</div>
-    <div style="font-size:16px;font-weight:700;margin-bottom:6px">管理员密钥验证</div>
-    <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:18px;line-height:1.6">
+    <div style="font-size:34px;margin-bottom:10px">🔐</div>
+    <h2>管理员密钥验证</h2>
+    <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:18px;line-height:1.7">
       服务已启用 API Key 认证,运维面板需要管理员密钥才能查看。<br>
       输入部署时设置的 API_KEY 或已创建的管理员 Token。
     </div>
@@ -483,316 +422,230 @@ pre:not(.json-viewer) { border-radius: 10px; }
   </div>
 </div>
 
-<!-- ================= SIDEBAR (Image 1 Style) ================= -->
+<!-- ============ 侧栏 ============ -->
 <nav class="sidebar" id="mainSidebar">
   <div class="brand-area">
     <div class="brand-left" id="brandBtn">
       <div class="brand-logo">🐟</div>
       <div class="brand-name">Sakana<span>2API</span></div>
     </div>
-    <a class="brand-ext" href="https://github.com" target="_blank" rel="noopener" title="GitHub 仓库">🐙</a>
+    <a class="brand-ext" href="https://github.com/xiaoli0412/sakana2api" target="_blank" rel="noopener" title="GitHub 仓库">↗</a>
   </div>
-
   <div class="sidebar-nav">
-    <button class="nav-btn active" data-tab="dash"><span class="nav-icon">📊</span><span class="nav-text">仪表盘</span></button>
-    <button class="nav-btn" data-tab="chat"><span class="nav-icon">💬</span><span class="nav-text">Sakana Chat</span><span class="nav-badge">AI</span></button>
-    <button class="nav-btn" data-tab="accounts"><span class="nav-icon">👤</span><span class="nav-text">账号池</span></button>
-    <button class="nav-btn" data-tab="keys"><span class="nav-icon">🔑</span><span class="nav-text">密钥管理</span></button>
-    <button class="nav-btn" data-tab="models"><span class="nav-icon">🧩</span><span class="nav-text">模型矩阵</span></button>
-    <button class="nav-btn" data-tab="audit"><span class="nav-icon">📋</span><span class="nav-text">请求审计</span></button>
-
-    <div class="nav-section-title">文档与接口</div>
+    <button class="nav-btn active" data-tab="dash"><span class="nav-icon">◈</span><span class="nav-text">仪表盘</span></button>
+    <button class="nav-btn" data-tab="chat"><span class="nav-icon">✳</span><span class="nav-text">Sakana Chat</span><span class="nav-badge">AI</span></button>
+    <button class="nav-btn" data-tab="accounts"><span class="nav-icon">◉</span><span class="nav-text">账号池</span></button>
+    <button class="nav-btn" data-tab="keys"><span class="nav-icon">⚿</span><span class="nav-text">密钥管理</span></button>
+    <button class="nav-btn" data-tab="models"><span class="nav-icon">⬡</span><span class="nav-text">模型矩阵</span></button>
+    <button class="nav-btn" data-tab="audit"><span class="nav-icon">☰</span><span class="nav-text">请求审计</span></button>
+    <div class="nav-section-title">API 文档</div>
     <div class="nav-tree-group">
-      <a class="tree-item" data-tab="docs" data-doc-target="chat-completions">
-        <span class="tree-item-title">Chat Completions</span>
-        <span class="tree-method">POST</span>
-      </a>
-      <a class="tree-item" data-tab="docs" data-doc-target="responses">
-        <span class="tree-item-title">Responses</span>
-        <span class="tree-method">POST</span>
-      </a>
-      <a class="tree-item" data-tab="docs" data-doc-target="messages">
-        <span class="tree-item-title">Messages</span>
-        <span class="tree-method">POST</span>
-      </a>
+      <a class="tree-item" data-tab="docs" data-doc-target="chat-completions"><span class="tree-method">POST</span> Chat Completions</a>
+      <a class="tree-item" data-tab="docs" data-doc-target="responses"><span class="tree-method">API</span> Responses</a>
+      <a class="tree-item" data-tab="docs" data-doc-target="messages"><span class="tree-method">API</span> Messages</a>
     </div>
-
-    <div class="nav-section-title">系统管理</div>
-    <button class="nav-btn" data-tab="settings"><span class="nav-icon">⚙️</span><span class="nav-text">系统设置</span></button>
+    <button class="nav-btn" data-tab="settings" style="margin-top:10px"><span class="nav-icon">⚙</span><span class="nav-text">系统设置</span></button>
   </div>
-
   <div class="sidebar-footer">
-    <div class="sidebar-status-wrap" id="statusDotWrap" title="服务健康状态 (点击测试延迟)">
-      <div class="status-dot ok" id="statusDot"></div>
-      <span class="sidebar-footer-text" style="font-size:12px;color:var(--text-dim)" id="sidebarStatusText">在线 24ms</span>
+    <div class="sidebar-status-wrap" id="statusDotWrap" title="服务状态">
+      <span class="status-dot" id="statusDot"></span>
+      <span class="sidebar-footer-text" id="sidebarStatusText">连接中…</span>
     </div>
-    <button class="btn sm" id="btnToggleSidebar" title="折叠/展开侧边栏" style="padding:3px 7px;font-size:11px">⇤</button>
+    <div class="sidebar-footer-text sm" id="serverEnvTag">Sakana</div>
   </div>
 </nav>
-
-<!-- ================= MAIN CONTAINER ================= -->
 <div class="sidebar-backdrop" id="sidebarBackdrop" hidden></div>
-<div class="main">
-  <!-- Topbar -->
-  <div class="topbar">
-    <div class="topbar-left">
-      <button class="mobile-menu-btn" id="btnOpenSidebar" type="button" aria-label="打开导航" title="打开导航">☰</button>
-      <div class="topbar-title">
-        <span id="pageHeaderTitle">仪表盘</span>
-        <span class="badge-tag" id="serverEnvTag">Sakana v0.19.1</span>
-      </div>
-      <div class="topbar-subtitle" id="pageHeaderSub">欢迎，Admin · 更新于 2026年8月16日 21:00</div>
-    </div>
-    <div class="topbar-right">
-      <div id="dashTopActions" style="display:flex;align-items:center;gap:8px">
-        <div class="btn-group" id="timeRangeGroup">
-          <button class="btn-group-btn active" data-range="24h">24h</button>
-          <button class="btn-group-btn" data-range="7d">7d</button>
-          <button class="btn-group-btn" data-range="30d">30d</button>
-          <button class="btn-group-btn" data-range="90d">90d</button>
-        </div>
-        <button class="btn sm" id="btnExportCsv" title="导出审计 CSV">📥 导出 CSV</button>
-        <button class="btn sm primary" id="btnGlobalRefresh">🔄 刷新</button>
-      </div>
-    </div>
-  </div>
 
-  <!-- Content Viewport -->
+<!-- ============ 主区 ============ -->
+<div class="main">
+  <header class="topbar">
+    <div class="topbar-left">
+      <button class="btn ghost sm mobile-menu-btn" id="btnOpenSidebar">☰</button>
+      <span class="topbar-title" id="pageHeaderTitle">仪表盘</span>
+      <span class="topbar-subtitle" id="pageHeaderSub">服务运行总览</span>
+    </div>
+    <div class="topbar-right" id="dashTopActions">
+      <div class="btn-group" id="timeRangeGroup">
+        <button class="btn-group-btn active" data-range="24h">24h</button>
+        <button class="btn-group-btn" data-range="7d">7d</button>
+        <button class="btn-group-btn" data-range="30d">30d</button>
+        <button class="btn-group-btn" data-range="90d">90d</button>
+      </div>
+      <button class="btn sm" id="btnGlobalRefresh" title="刷新全部数据">↻ 刷新</button>
+      <button class="btn sm" id="btnExportCsv" title="导出 CSV">↓ CSV</button>
+      <button class="btn ghost sm" id="btnToggleSidebar" title="收起/展开侧栏">▤</button>
+    </div>
+  </header>
+
   <div class="content-viewport" id="viewport">
 
-    <!-- ================= PANE 1: DASHBOARD ================= -->
+    <!-- ================= PANE: 仪表盘 ================= -->
     <div data-pane="dash">
-      <!-- 4 Top Stat Cards (Image 1 Style) -->
       <div class="dash-grid-top">
         <div class="metric-card c-emerald">
-          <div class="metric-head"><span class="metric-label">可用账号</span><span class="metric-icon">👥</span></div>
-          <div class="metric-val" id="metricAccounts">0</div>
-          <div class="metric-sub" id="metricAccountsSub">0 / 0 可用 · 0 冷却 · 0 失效</div>
-          <div class="metric-bar"><div class="metric-bar-fill" id="barAccounts" style="width:0%;background:var(--accent-strong)"></div></div>
+          <div class="metric-head"><span class="metric-label">账号池</span><span class="metric-icon">◉</span></div>
+          <div class="metric-val" id="metricAccounts">—</div>
+          <div class="metric-sub" id="metricAccountsSub">加载中…</div>
+          <div class="metric-bar"><div class="metric-bar-fill" id="barAccounts" style="width:0%"></div></div>
         </div>
-
         <div class="metric-card c-cyan">
-          <div class="metric-head"><span class="metric-label">请求数</span><span class="metric-icon">⚡</span></div>
-          <div class="metric-val" id="metricRequests">0</div>
-          <div class="metric-sub" id="metricRequestsSub">成功率 — · 0 失败</div>
-          <div class="metric-bar"><div class="metric-bar-fill" id="barRequests" style="width:0%;background:var(--cyan)"></div></div>
+          <div class="metric-head"><span class="metric-label">请求数</span><span class="metric-icon">↗</span></div>
+          <div class="metric-val" id="metricRequests">—</div>
+          <div class="metric-sub" id="metricRequestsSub">加载中…</div>
+          <div class="metric-bar"><div class="metric-bar-fill" id="barRequests" style="width:0%"></div></div>
         </div>
-
         <div class="metric-card c-blue">
-          <div class="metric-head"><span class="metric-label">总 Tokens</span><span class="metric-icon">🧮</span></div>
-          <div class="metric-val" id="metricTokens">0</div>
-          <div class="metric-sub" id="metricTokensSub">输出 0 · 输入 0 · 缓存 0%</div>
-          <div class="metric-bar"><div class="metric-bar-fill" id="barTokens" style="width:0%;background:var(--blue)"></div></div>
+          <div class="metric-head"><span class="metric-label">Tokens</span><span class="metric-icon">✦</span></div>
+          <div class="metric-val" id="metricTokens">—</div>
+          <div class="metric-sub" id="metricTokensSub">含完整上下文计量</div>
+          <div class="metric-bar"><div class="metric-bar-fill" id="barTokens" style="width:0%"></div></div>
         </div>
-
         <div class="metric-card c-amber">
-          <div class="metric-head"><span class="metric-label">计费</span><span class="metric-icon">💎</span></div>
-          <div class="metric-val" id="metricCost">$0.0000</div>
-          <div class="metric-sub" id="metricCostSub">当前 30d 时间段累计节省</div>
-          <div class="metric-bar"><div class="metric-bar-fill" id="barCost" style="width:0%;background:var(--amber)"></div></div>
+          <div class="metric-head"><span class="metric-label">成本估算</span><span class="metric-icon">$</span></div>
+          <div class="metric-val" id="metricCost">—</div>
+          <div class="metric-sub" id="metricCostSub">按上游免费额度折算</div>
+          <div class="metric-bar"><div class="metric-bar-fill" id="barCost" style="width:0%"></div></div>
         </div>
       </div>
 
-      <!-- Grouped Stats Row (Image 2 Style) -->
       <div class="grouped-stats-banner">
         <div class="group-stat-item">
-          <span class="group-stat-title">⚡ 请求统计</span>
-          <div class="group-stat-row"><span class="group-stat-num" id="grpReqNum">0</span><span class="group-stat-sub">次</span></div>
+          <div class="group-stat-title">总览 · 请求</div>
+          <div class="group-stat-row"><span class="group-stat-num" id="grpReqNum">0</span><span class="group-stat-sub">次调用</span></div>
         </div>
         <div class="group-stat-item">
-          <span class="group-stat-title">🧰 全部统计</span>
-          <div class="group-stat-row"><span class="group-stat-num" id="grpTokNum">0</span><span class="group-stat-sub">Tokens</span></div>
+          <div class="group-stat-title">总览 · Tokens</div>
+          <div class="group-stat-row"><span class="group-stat-num" id="grpTokNum">0</span><span class="group-stat-sub">输入+输出</span></div>
         </div>
         <div class="group-stat-item">
-          <span class="group-stat-title">📥 输入统计</span>
-          <div class="group-stat-row"><span class="group-stat-num" id="grpInNum">0</span><span class="group-stat-sub">Prompt</span></div>
+          <div class="group-stat-title">输入上下文</div>
+          <div class="group-stat-row"><span class="group-stat-num" id="grpInNum">0</span><span class="group-stat-sub">prompt tokens</span></div>
         </div>
         <div class="group-stat-item">
-          <span class="group-stat-title">📤 输出统计</span>
-          <div class="group-stat-row"><span class="group-stat-num" id="grpOutNum">0</span><span class="group-stat-sub">Completion</span></div>
+          <div class="group-stat-title">模型输出</div>
+          <div class="group-stat-row"><span class="group-stat-num" id="grpOutNum">0</span><span class="group-stat-sub">completion tokens</span></div>
         </div>
       </div>
 
-      <!-- OPS Live Strip: 并发队列/内存/运行时长/上下文/审计 — 全真实数据 -->
       <div class="ops-strip">
-        <div class="ops-item"><span class="ops-label">🚦 排队请求</span><span class="ops-val" id="metricOpsQueue">0</span></div>
-        <div class="ops-item"><span class="ops-label">⚙️ 在途并发</span><span class="ops-val" id="metricOpsInflight">0 / 0</span></div>
-        <div class="ops-item"><span class="ops-label">🧠 内存占用</span><span class="ops-val" id="metricOpsMem">0 MB</span></div>
-        <div class="ops-item"><span class="ops-label">⏱ 运行时长</span><span class="ops-val" id="metricOpsUp">0s</span></div>
-        <div class="ops-item"><span class="ops-label">🧵 上下文映射</span><span class="ops-val" id="metricOpsCtx">会话 0</span></div>
-        <div class="ops-item"><span class="ops-label">📋 审计日志</span><span class="ops-val" id="metricOpsAudit">0 条</span></div>
+        <div class="ops-item"><div class="ops-label">并发队列</div><div class="ops-val" id="metricOpsQueue">—</div></div>
+        <div class="ops-item"><div class="ops-label">在途请求</div><div class="ops-val" id="metricOpsInflight">—</div></div>
+        <div class="ops-item"><div class="ops-label">内存 RSS</div><div class="ops-val" id="metricOpsMem">—</div></div>
+        <div class="ops-item"><div class="ops-label">上游</div><div class="ops-val" id="metricOpsUp">—</div></div>
+        <div class="ops-item"><div class="ops-label">上下文</div><div class="ops-val" id="metricOpsCtx">—</div></div>
+        <div class="ops-item"><div class="ops-label">审计</div><div class="ops-val" id="metricOpsAudit">—</div></div>
       </div>
 
-      <!-- GitHub Activity Heatmap Grid -->
       <div class="heatmap-card">
         <div class="heatmap-head">
-          <div class="heatmap-title">
-            <span>🔥 24小时调用热度矩阵</span>
-            <span style="font-size:11.5px;color:var(--text-dim);font-weight:400">像素级活跃时段分布</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-dim)">
-            <span>低</span>
-            <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--heat-0)"></span>
-            <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--heat-1)"></span>
-            <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--heat-2)"></span>
-            <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--heat-3)"></span>
-            <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--heat-4)"></span>
-            <span>高</span>
+          <div>
+            <div class="heatmap-title">请求活跃度</div>
+            <div style="font-size:11px;color:var(--text-muted)" id="dashLastUpdate">等待数据…</div>
           </div>
         </div>
         <div class="heatmap-grid" id="heatmapGrid"></div>
       </div>
 
-      <!-- Spline Trend Chart (Image 1 & 2 Style) -->
       <div class="chart-card">
         <div class="chart-head">
           <div>
-            <div style="font-size:14px;font-weight:700;color:var(--text-main)">📈 调用趋势 (Usage Trend)</div>
-            <div style="font-size:11.5px;color:var(--text-dim)">按时间、Tokens及吞吐量动态追踪</div>
+            <div class="heatmap-title">调用趋势</div>
+            <div style="font-size:11px;color:var(--text-muted)">Tokens · 调用量 · 吞吐</div>
           </div>
-          <div style="display:flex;align-items:center;gap:10px">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
             <div class="btn-group" id="chartMetricGroup">
               <button class="btn-group-btn active" data-metric="tokens">Tokens</button>
               <button class="btn-group-btn" data-metric="requests">调用</button>
               <button class="btn-group-btn" data-metric="cost">金额</button>
             </div>
             <div class="btn-group" id="chartTypeGroup">
-              <button class="btn-group-btn active" data-type="area">面积图</button>
-              <button class="btn-group-btn" data-type="line">折线图</button>
-              <button class="btn-group-btn" data-type="bar">柱状图</button>
+              <button class="btn-group-btn active" data-type="area">面积</button>
+              <button class="btn-group-btn" data-type="line">折线</button>
+              <button class="btn-group-btn" data-type="bar">柱状</button>
             </div>
           </div>
         </div>
-
-        <!-- Mini Metric Pills (Image 2 Style) -->
         <div class="chart-metrics-row">
-          <div class="chart-metric-pill">消耗金额: <b id="pillCost">$0.0000</b></div>
-          <div class="chart-metric-pill">峰值: <b id="pillPeak">0</b></div>
-          <div class="chart-metric-pill">平均值: <b id="pillAvg">0</b></div>
-          <div class="chart-metric-pill">最近值: <b id="pillLatest">0</b></div>
-          <div class="chart-metric-pill">时延均值: <b id="pillLatency">—</b></div>
-          <div class="chart-metric-pill">令牌用量: <b id="pillTokens">0</b></div>
+          <span class="chart-metric-pill" id="pillTokens">Tokens —</span>
+          <span class="chart-metric-pill" id="pillCost">金额 —</span>
+          <span class="chart-metric-pill" id="pillPeak">峰值 —</span>
+          <span class="chart-metric-pill" id="pillAvg">均值 —</span>
+          <span class="chart-metric-pill" id="pillLatest">最近 —</span>
+          <span class="chart-metric-pill" id="pillLatency">延迟 —</span>
         </div>
-
-        <div class="chart-canvas-container">
-          <canvas id="trendChart"></canvas>
-        </div>
+        <div class="chart-canvas-container"><canvas id="trendChart"></canvas></div>
         <div class="chart-legend">
-          <div class="chart-legend-item"><span class="chart-legend-dot" style="background:var(--accent-strong)"></span> sakana</div>
-          <div class="chart-legend-item"><span class="chart-legend-dot" style="background:var(--cyan)"></span> sakana-code</div>
-          <div class="chart-legend-item"><span class="chart-legend-dot" style="background:var(--blue)"></span> 其他模型 / 思考链</div>
+          <span class="chart-legend-item"><span class="chart-legend-dot" style="background:var(--accent)"></span>Tokens</span>
+          <span class="chart-legend-item"><span class="chart-legend-dot" style="background:var(--info)"></span>请求数</span>
         </div>
       </div>
 
-      <!-- Top Models Podium & Table (Image 1 Style) -->
-      <div class="section-title">
-        <span>🏆 常用模型 Top 10</span>
-        <span style="font-size:12px;color:var(--text-dim);font-weight:400" id="dashLastUpdate">最后更新: 刚刚</span>
-      </div>
+      <div class="section-title">模型用量排行</div>
       <div class="podium-grid" id="podiumContainer"></div>
       <div class="table-wrap">
         <table>
-          <thead>
-            <tr>
-              <th style="width:60px">排名</th>
-              <th>模型名称</th>
-              <th>请求数</th>
-              <th>输入 (Prompt)</th>
-              <th>缓存 (Cache)</th>
-              <th>输出 (Completion)</th>
-              <th>命中 (Hit)</th>
-              <th>总 Tokens</th>
-              <th>计费 (Cost)</th>
-            </tr>
-          </thead>
-          <tbody id="modelRankTbody">
-            <tr><td colspan="9" style="text-align:center;padding:30px;color:var(--text-dim)">暂无调用数据</td></tr>
-          </tbody>
+          <thead><tr><th>模型</th><th>请求数</th><th>Tokens</th><th>错误</th><th>占比</th></tr></thead>
+          <tbody id="modelRankTbody"></tbody>
         </table>
       </div>
     </div>
 
-    <!-- ================= PANE 2: SAKANA CHAT (Image 3 Style) ================= -->
+    <!-- ================= PANE: Sakana Chat ================= -->
     <div data-pane="chat" hidden>
       <div class="chat-layout">
-        <!-- Chat Left Sidebar -->
         <div class="chat-sidebar" id="chatSidebar">
-          <button class="btn primary" id="btnNewChat" style="width:100%;font-size:13px;padding:9px">+ 新聊天</button>
-          
+          <button class="btn primary" id="btnNewChat" style="width:100%">+ 新聊天</button>
           <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px">
-            <div style="font-size:11px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px">预设助理</div>
-            <button class="btn ghost" id="btnSavePreset" style="font-size:11px;padding:2px 8px" title="把当前模型/风格/输入保存为自定义预设">＋ 保存</button>
+            <div style="font-size:10.5px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px">预设助理</div>
+            <button class="btn ghost" id="btnSavePreset" style="font-size:11px;padding:2px 10px" title="把当前模型/风格/输入保存为自定义预设">＋ 保存</button>
           </div>
-          <div style="display:flex;flex-direction:column;gap:5px" id="presetList">
-            <div class="preset-card" data-preset="translate">
-              <span>🔤</span>
-              <span class="p-title">佐金奈翻译</span>
-            </div>
-            <div class="preset-card" data-preset="marlin">
-              <span>🐟</span>
-              <span class="p-title">萨卡纳·马林鱼</span>
-            </div>
-            <div class="preset-card" data-preset="fugu">
-              <span>🐡</span>
-              <span class="p-title">佐列奈·富吉</span>
-            </div>
-            <div class="preset-card" data-preset="osaka">
-              <span>🐙</span>
-              <span class="p-title">那马津佐贺奈</span>
-            </div>
+          <div id="presetList" style="display:flex;flex-direction:column;gap:4px">
+            <div class="preset-card" data-preset="translate"><span>🔤</span><span class="p-title">佐金奈翻译</span></div>
+            <div class="preset-card" data-preset="marlin"><span>🐟</span><span class="p-title">萨卡纳·马林鱼</span></div>
+            <div class="preset-card" data-preset="fugu"><span>🐡</span><span class="p-title">佐列奈·富吉</span></div>
+            <div class="preset-card" data-preset="osaka"><span>🐙</span><span class="p-title">那马津佐贺奈</span></div>
           </div>
-
           <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px">
-            <div style="font-size:11px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px">🎭 角色卡</div>
-            <button class="btn ghost" id="btnUploadCard" style="font-size:11px;padding:2px 8px">+ 上传</button>
+            <div style="font-size:10.5px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px">🎭 角色卡</div>
+            <button class="btn ghost" id="btnUploadCard" style="font-size:11px;padding:2px 10px">+ 上传</button>
           </div>
-          <div class="card-list" id="characterCardList" style="display:flex;flex-direction:column;gap:5px;max-height:220px;overflow-y:auto">
-            <div style="font-size:11px;color:var(--text-dim);padding:4px 2px">暂无角色卡,点击「+ 上传」导入酒馆角色卡 PNG</div>
+          <div class="card-list" id="characterCardList" style="max-height:200px;overflow-y:auto">
+            <div style="font-size:11px;color:var(--text-muted);padding:4px 2px">暂无角色卡,点击「+ 上传」导入酒馆角色卡 PNG</div>
           </div>
           <input type="file" id="cardFileInput" accept="image/png" hidden>
-
-          <div style="font-size:11px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;margin-top:8px">历史会话</div>
+          <div style="font-size:10.5px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-top:8px">历史会话</div>
           <div class="chat-history-list" id="chatHistoryList"></div>
-
-          <div style="display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--border-subtle);padding-top:8px;margin-top:auto">
-            <div class="tree-item" id="btnChatSettingsModal">
-              <span>⚙️ 参数设定</span>
-            </div>
-          </div>
+          <div class="tree-item" id="btnChatSettingsModal" style="padding-left:10px">⚙️ 参数设定</div>
         </div>
 
-          <!-- Chat Main Area -->
         <div class="chat-drawer-backdrop" id="chatDrawerBackdrop" hidden></div>
         <div class="chat-main">
           <div class="chat-top-header">
             <div style="display:flex;align-items:center;gap:10px;min-width:0">
               <button class="btn ghost sm" id="btnOpenChatDrawer" style="display:none;flex:none" title="会话列表">☰</button>
-              <span style="font-weight:700;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" id="chatCurrentTitle">新会话</span>
+              <span id="chatCurrentTitle" style="font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">新会话</span>
             </div>
-            <div style="display:flex;align-items:center;gap:8px">
-              <button class="btn sm" id="btnExportChat" title="导出当前对话">📤 导出</button>
-              <button class="btn sm" id="btnClearChat" title="清空当前消息">🗑️ 清屏</button>
+            <div style="display:flex;align-items:center;gap:6px">
+              <button class="btn sm" id="btnExportChat" title="导出当前对话">↗ 导出</button>
+              <button class="btn sm" id="btnClearChat" title="清空当前消息">✕ 清屏</button>
             </div>
           </div>
-
           <div class="chat-viewport" id="chatViewport">
             <div class="chat-hero" id="chatHero">
               <div class="chat-hero-art">🐟</div>
-              <div class="chat-hero-title">有什么问题都可以问</div>
-              <div class="chat-hero-desc">深度思考与联网检索按模型智能路由 · 超长上下文自动压缩 · 代码高亮与文件分析</div>
+              <div class="chat-hero-title serif">有什么问题都可以问</div>
+              <div class="chat-hero-desc">完整上下文计量 · 深度思考与联网检索智能路由 · 超长上下文光学压缩</div>
               <div class="chat-suggestions">
                 <div class="suggestion-chip" data-prompt="用 Python 实现一个支持并发连接池的异步 HTTP 请求客户端">🐍 Python 异步并发请求库</div>
                 <div class="suggestion-chip" data-prompt="请深度分析当前大语言模型在反向代理和逆向工程中的安全性考量">🔍 LLM 网关架构与安全分析</div>
-                <div class="suggestion-chip" data-prompt="用幽默的大阪方言给我介绍一下章鱼烧的制作秘诀">🐙 用大阪腔介绍章鱼烧秘诀</div>
+                <div class="suggestion-chip" data-prompt="用幽默的大阪方言给我介绍一下章鱼烧的制作秘诀">🐙 大阪腔章鱼烧秘诀</div>
               </div>
             </div>
-            <div id="chatMessages" style="display:flex;flex-direction:column;gap:18px"></div>
+            <div id="chatMessages"></div>
           </div>
-
-          <!-- Bottom Chat Input Bar (Image 3 Style) -->
           <div class="chat-bottom-bar">
-            <div class="active-card-bar" id="activeCardBar" hidden style="display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:10px;margin-bottom:8px;font-size:12px">
-              <img id="activeCardAvatar" alt="" style="width:26px;height:26px;border-radius:6px;object-fit:cover;flex:none">
+            <div class="active-card-bar" id="activeCardBar" hidden>
+              <img id="activeCardAvatar" alt="" style="width:26px;height:26px;border-radius:8px;object-fit:cover;flex:none">
               <span id="activeCardName" style="font-weight:600;color:var(--text-main);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
               <button class="btn ghost sm" id="btnClearActiveCard" style="flex:none">✕ 取消</button>
             </div>
@@ -801,7 +654,7 @@ pre:not(.json-viewer) { border-radius: 10px; }
               <textarea class="chat-textarea" id="chatInput" rows="1" placeholder="有什么问题都可以问 (Enter 发送, Shift+Enter 换行)"></textarea>
               <div class="chat-controls-row">
                 <div class="chat-controls-left">
-                  <button class="toggle-btn" id="btnAttachFile" title="添加附件或图片">➕ 附件</button>
+                  <button class="toggle-btn" id="btnAttachFile" title="添加附件或图片">＋ 附件</button>
                   <select class="chat-select mono" id="chatModelSelect"></select>
                   <select class="chat-select" id="chatStyleSelect" title="回复风格">
                     <option value="default">默认风格</option>
@@ -809,328 +662,181 @@ pre:not(.json-viewer) { border-radius: 10px; }
                     <option value="osaka">大阪风格</option>
                   </select>
                 </div>
-                <div style="display:flex;gap:6px">
-                  <button class="btn primary sm" id="btnSendChat" style="padding:6px 16px;font-weight:700">↑ 发送</button>
-                </div>
+                <button class="btn primary sm" id="btnSendChat" style="font-weight:700">↑ 发送</button>
               </div>
             </div>
-            <div style="text-align:center;font-size:11px;color:var(--text-dim)">
-              遇上消息发送，即表示您同意我们的<a href="#">服务条款</a>和<a href="#">隐私政策</a>。
+            <div style="text-align:center;font-size:10.5px;color:var(--text-muted);margin-top:8px">
+              发送消息即表示同意服务条款与隐私政策 · usage 含完整输入上下文计量
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- ================= PANE: MODELS MATRIX (Image 1 Style) ================= -->
+    <!-- ================= PANE: 模型矩阵 ================= -->
     <div data-pane="models" hidden>
-      <div class="section-title">
-        <span>🧩 支持的模型矩阵 (Model Matrix)</span>
-        <span style="font-size:12px;color:var(--text-dim);font-weight:400" id="modelMatrixCount">模型加载中</span>
-      </div>
+      <div class="section-title">模型矩阵 · <span id="modelMatrixCount">9</span> 个公开模型</div>
       <div class="model-matrix-grid" id="modelMatrixGrid"></div>
     </div>
 
-    <!-- ================= PANE 3: ACCOUNTS POOL ================= -->
+    <!-- ================= PANE: 账号池 ================= -->
     <div data-pane="accounts" hidden>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-        <div>
-          <div style="font-size:15px;font-weight:700;color:var(--text-main)">👤 上游账号池健康监控</div>
-          <div style="font-size:12px;color:var(--text-dim)">多账号轮询分流 · 独立会话隔离 · 自动 5s 盾突破与保活</div>
-          <div id="accPoolStatus" style="font-size:12px;color:var(--text-main);margin-top:6px">目标 <b>20</b> · 上限 <b>20</b> · 最近收割 — · 状态获取中…</div>
-        </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn sm" id="btnTriggerHarvest">⚡ 触发账号补充/刷新</button>
-          <button class="btn sm primary" id="btnRefreshAccounts">🔄 刷新列表</button>
-        </div>
-      </div>
-
-      <div class="dash-grid-top" style="margin-bottom:18px">
-        <div class="metric-card c-cyan">
-          <div class="metric-head"><span class="metric-label">总账号容量</span><span class="metric-icon">👥</span></div>
-          <div class="metric-val" id="accStatTotal">0</div>
-          <div class="metric-sub" id="accStatTotalSub">目标 20 · 上限 20 账号</div>
-        </div>
+      <div class="dash-grid-top">
         <div class="metric-card c-emerald">
-          <div class="metric-head"><span class="metric-label">活跃可用</span><span class="metric-icon">✅</span></div>
-          <div class="metric-val" id="accStatActive">0</div>
-          <div class="metric-sub" id="accStatActiveSub">正常响应请求</div>
+          <div class="metric-head"><span class="metric-label">总账号</span></div>
+          <div class="metric-val" id="accStatTotal">—</div>
+          <div class="metric-sub" id="accStatTotalSub">—</div>
+        </div>
+        <div class="metric-card c-cyan">
+          <div class="metric-head"><span class="metric-label">活跃</span></div>
+          <div class="metric-val" id="accStatActive">—</div>
+          <div class="metric-sub" id="accStatActiveSub">—</div>
         </div>
         <div class="metric-card c-amber">
-          <div class="metric-head"><span class="metric-label">限流冷却</span><span class="metric-icon">⏳</span></div>
-          <div class="metric-val" id="accStatLimited">0</div>
-          <div class="metric-sub">自动降级隔离</div>
+          <div class="metric-head"><span class="metric-label">限流中</span></div>
+          <div class="metric-val" id="accStatLimited">—</div>
         </div>
-        <div class="metric-card c-blue">
-          <div class="metric-head"><span class="metric-label">失效待刷</span><span class="metric-icon">⚠️</span></div>
-          <div class="metric-val" id="accStatExpired">0</div>
-          <div class="metric-sub">需重新 Harvest</div>
+        <div class="metric-card c-amber">
+          <div class="metric-head"><span class="metric-label">过期</span></div>
+          <div class="metric-val" id="accStatExpired">—</div>
         </div>
       </div>
-
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <span id="accPoolStatus" style="font-size:12px;color:var(--text-dim)">池状态加载中…</span>
+        <span style="flex:1"></span>
+        <button class="btn sm" id="btnRefreshAccounts">↻ 刷新</button>
+        <button class="btn sm primary" id="btnTriggerHarvest">＋ 触发补号</button>
+      </div>
       <div class="table-wrap">
         <table>
-          <thead>
-            <tr>
-              <th>账号标识 (Email / UID)</th>
-              <th>类型</th>
-              <th>在途并发 / 累计</th>
-              <th>Cookie 数量</th>
-              <th>存活时长</th>
-              <th>状态</th>
-              <th>最后更新</th>
-            </tr>
-          </thead>
+          <thead><tr><th>邮箱</th><th>状态</th><th>成功/尝试</th><th>限流至</th><th>最近活动</th><th>操作</th></tr></thead>
           <tbody id="accountRows"></tbody>
         </table>
       </div>
     </div>
 
-    <!-- ================= PANE 4: API KEYS ================= -->
+    <!-- ================= PANE: 密钥管理 ================= -->
     <div data-pane="keys" hidden>
       <div id="keyMainSection">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-          <div>
-            <div style="font-size:15px;font-weight:700;color:var(--text-main)">🔑 API 密钥访问管理</div>
-            <div style="font-size:12px;color:var(--text-dim)" id="keyAuthStatusHint">已启用 Key 认证模式</div>
-          </div>
-          <button class="btn primary sm" id="btnOpenCreateKey">➕ 创建新密钥</button>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <div class="section-title" style="margin:0">API 密钥</div>
+          <span style="flex:1"></span>
+          <button class="btn primary sm" id="btnOpenCreateKey">＋ 创建密钥</button>
         </div>
-
-        <div id="newKeyAlert" class="card-panel" style="border-color:var(--emerald);background:rgba(16,185,129,0.08);margin-bottom:16px" hidden>
-          <div style="font-weight:700;color:var(--accent-strong);margin-bottom:4px">🎉 密钥创建成功 (请立即妥善保存，仅显示一次)</div>
-          <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
-            <input type="text" class="input-text mono" id="newKeyVal" readonly>
-            <button class="btn primary sm" id="btnCopyNewKey">复制</button>
-          </div>
-        </div>
-
-        <div class="table-wrap" style="margin-bottom:24px">
+        <div id="keyAuthStatusHint" style="font-size:12px;color:var(--text-dim);margin-bottom:10px"></div>
+        <div class="table-wrap">
           <table>
-            <thead>
-              <tr>
-                <th>密钥名称</th>
-                <th>Token 前缀</th>
-                <th>状态</th>
-                <th>创建时间</th>
-                <th>最近调用</th>
-                <th>操作</th>
-              </tr>
-            </thead>
+            <thead><tr><th>名称</th><th>密钥前缀</th><th>最近使用</th><th>状态</th><th>操作</th></tr></thead>
             <tbody id="keyRows"></tbody>
           </table>
         </div>
-
-        <!-- Quick Integration Guide -->
-        <div class="section-title">🚀 客户端接入指引 (OpenAI SDK 兼容)</div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(360px, 1fr));gap:16px">
-          <div class="card-panel">
-            <div style="font-weight:700;color:var(--text-main);margin-bottom:8px">🐍 Python (openai >= 1.0)</div>
-            <pre class="json-viewer mono" style="max-height:160px"><code class="language-python">from openai import OpenAI
-
-client = OpenAI(
-    api_key="sk-sakana-key",
-    base_url="http://localhost:8787/v1"
-)
-
-response = client.chat.completions.create(
-    model="sakana",
-    messages=[{"role": "user", "content": "你好"}],
-    stream=True
-)
-for chunk in response:
-    print(chunk.choices[0].delta.content or "", end="")</code></pre>
-          </div>
-
-          <div class="card-panel">
-            <div style="font-weight:700;color:var(--text-main);margin-bottom:8px">⚡ cURL 命令行调用</div>
-            <pre class="json-viewer mono" style="max-height:160px"><code>curl http://localhost:8787/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer sk-sak-xxx" \
-  -d '{
-    "model": "sakana",
-    "messages": [{"role": "user", "content": "Hello!"}],
-    "stream": false
-  }'</code></pre>
+        <div class="card-panel" style="margin-top:16px">
+          <div style="font-family:var(--font-serif);font-weight:700;font-size:15px;color:var(--ink);margin-bottom:8px">快速接入</div>
+          <div style="font-size:12px;color:var(--text-dim);line-height:1.8">
+            Base URL: <code id="keyBaseUrlHint">http://your-server:8787/v1</code> · 兼容 OpenAI SDK / Claude Code / Cursor / Cherry Studio。<br>
+            业务密钥用于 <code>/v1/chat/completions</code> 等推理端点;面板与密钥管理需管理员密钥。
           </div>
         </div>
       </div>
     </div>
 
-    <!-- ================= PANE 5: AUDIT LOGS ================= -->
+    <!-- ================= PANE: 请求审计 ================= -->
     <div data-pane="audit" hidden>
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">
-        <div>
-          <div style="font-size:15px;font-weight:700;color:var(--text-main)">📋 实时请求审计流水</div>
-          <div style="font-size:12px;color:var(--text-dim)">追踪每一次 API 调用的耗时、状态码、输入与输出 Payload</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <input type="text" class="input-text" id="auditSearchInput" placeholder="按模型/路径/错误过滤..." style="width:200px;font-size:12px;padding:5px 10px">
-          <button class="btn sm" id="btnExportAuditCsv">📥 导出 CSV</button>
-          <button class="btn sm danger" id="btnClearAuditLogs">🗑️ 清空日志</button>
-          <button class="btn sm primary" id="btnRefreshAudit">🔄 刷新</button>
-        </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+        <div class="section-title" style="margin:0">请求审计</div>
+        <input type="text" class="input-text" id="auditSearchInput" placeholder="搜索路径/模型/密钥…" style="width:220px">
+        <span style="flex:1"></span>
+        <button class="btn sm" id="btnRefreshAudit">↻ 刷新</button>
+        <button class="btn sm" id="btnExportAuditCsv">↓ CSV</button>
+        <button class="btn sm danger" id="btnClearAuditLogs">清空</button>
       </div>
-
       <div class="table-wrap">
         <table>
-          <thead>
-            <tr>
-              <th>时间</th>
-              <th>方法</th>
-              <th>路径</th>
-              <th>请求模型</th>
-              <th>状态</th>
-              <th>耗时</th>
-              <th>详情</th>
-            </tr>
-          </thead>
+          <thead><tr><th>时间</th><th>方法</th><th>路径</th><th>模型</th><th>状态</th><th>耗时</th><th>Tokens</th><th></th></tr></thead>
           <tbody id="auditRows"></tbody>
         </table>
       </div>
     </div>
 
-    <!-- ================= PANE 6: API DOCS ================= -->
+    <!-- ================= PANE: API 文档 ================= -->
     <div data-pane="docs" hidden>
-      <div class="section-title">📖 API 接口与交互文档</div>
-      <div style="display:flex;flex-direction:column;gap:16px">
-        <div class="card-panel" id="doc-chat-completions">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-            <span class="pill on">POST</span>
-            <span class="mono" style="font-weight:700;font-size:14px;color:#fff">/v1/chat/completions</span>
-            <span class="pill blue">标准对话接口 (兼容 OpenAI)</span>
-          </div>
-          <p style="color:var(--text-muted);font-size:12.5px;margin-bottom:10px">
-            支持标准流式（SSE）与非流式调用，支持思考链（reasoning_content）、多模态图片、文本附件、联网搜索以及多轮对话自动上下文粘性绑定。
-          </p>
-          <div class="json-viewer mono">{
-    "model": "sakana", // 可选: sakana, sakana-mini, sakana-code, sakana-code-mini, sakana-writer, sakana-writer-mini, sakana-translate, sakana-polite, sakana-osaka
-  "messages": [
-    { "role": "system", "content": "You are a helpful assistant." },
-    { "role": "user", "content": "帮我写一首关于海洋的诗" }
-  ],
-  "stream": true
-}</div>
+      <div class="doc-section" id="doc-chat-completions">
+        <div class="section-title">POST /v1/chat/completions</div>
+        <div class="card-panel" style="margin-bottom:14px">
+          <p>OpenAI 兼容对话补全。支持流式 (SSE) 与非流式、多轮工具调用、图像与文件附件、深度思考 (reasoning_content) 与联网检索 (citations)。</p>
+          <p><b>usage 计量</b>:<code>prompt_tokens</code> 含组装后完整上下文(系统注入+全部附件文本+光学压缩页按像素折算),CJK 按每字符约 1 token 估算;<code>total_tokens = prompt + completion</code>。</p>
+          <div class="json-viewer">curl -X POST http://your-server:8787/v1/chat/completions \
+  -H "Authorization: Bearer sk-sak-..." -H "Content-Type: application/json" \
+  -d '{"model":"sakana","stream":true,"messages":[{"role":"user","content":"你好"}]}'</div>
         </div>
-
-        <div class="card-panel" id="doc-responses">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-            <span class="pill on">POST</span>
-            <span class="mono" style="font-weight:700;font-size:14px;color:#fff">/v1/responses</span>
-            <span class="pill cyan">OpenAI 简化版 Responses 接口</span>
-          </div>
-          <p style="color:var(--text-muted);font-size:12.5px;margin-bottom:10px">
-            简化调用参数，直接传入 input 与 instructions，自动转换为标准上下文。
-          </p>
-          <div class="json-viewer mono">{
-  "model": "sakana",
-  "input": "请帮我规划一个为期三天的东京旅行路线",
-  "instructions": "你是一位专业的旅行规划师",
-  "stream": false
-}</div>
-        </div>
-
-        <div class="card-panel" id="doc-messages">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-            <span class="pill on">POST</span>
-            <span class="mono" style="font-weight:700;font-size:14px;color:#fff">/v1/messages</span>
-            <span class="pill info">Anthropic Claude 兼容接口</span>
-          </div>
-          <p style="color:var(--text-muted);font-size:12.5px;margin-bottom:10px">
-            兼容 Claude 风格请求结构，自动转换为 Sakana 协议并返回 content_block_delta 格式流。
-          </p>
-        </div>
-
-        <div class="card-panel">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-            <span class="pill blue">GET</span>
-            <span class="mono" style="font-weight:700;font-size:14px;color:#fff">/v1/models</span>
-            <span class="pill off">模型列表</span>
-          </div>
-          <p style="color:var(--text-muted);font-size:12.5px">
-            返回网关支持的全部模型矩阵与描述信息。
-          </p>
-        </div>
+      </div>
+      <div class="doc-section" id="doc-responses" hidden>
+        <div class="section-title">Responses 风格</div>
+        <div class="card-panel"><p>与 Chat Completions 同构;<code>conversation_id</code> 响应字段用于多轮粘性(同账号同上游会话)。流式尾 chunk 携带完整 usage(choices 为空数组,OpenAI 规范)。</p></div>
+      </div>
+      <div class="doc-section" id="doc-messages" hidden>
+        <div class="section-title">Messages (Anthropic 兼容)</div>
+        <div class="card-panel"><p><code>/v1/messages</code> 支持 Anthropic 工具协议;usage 映射为 input_tokens/output_tokens。Gemini 客户端走 <code>/v1beta/models/{model}:generateContent</code>。</p></div>
       </div>
     </div>
 
-    <!-- ================= PANE 7: SETTINGS ================= -->
+    <!-- ================= PANE: 系统设置 ================= -->
     <div data-pane="settings" hidden>
-      <div class="section-title">⚙️ 系统设置与运行诊断</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(360px, 1fr));gap:16px">
+      <div class="section-title">系统设置与运行诊断</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:16px">
         <div class="card-panel">
-          <div style="font-size:14px;font-weight:700;color:var(--text-main);margin-bottom:12px">🌐 API 接入端点配置</div>
-          <div style="display:flex;flex-direction:column;gap:10px">
-            <div>
-              <div style="font-size:11.5px;color:var(--text-dim);margin-bottom:4px">当前 API Base URL:</div>
-              <div style="display:flex;gap:8px">
-                <input type="text" class="input-text mono" id="settingBaseUrl" readonly>
-                <button class="btn sm primary" onclick="navigator.clipboard.writeText($('settingBaseUrl').value);toast('已复制 Base URL')">复制</button>
-              </div>
-            </div>
-            <div>
-              <div style="font-size:11.5px;color:var(--text-dim);margin-bottom:4px">外观主题模式:</div>
-              <div style="display:flex;gap:8px">
-                <button class="btn sm active" id="btnThemeDark">🌑 深邃暗夜</button>
-                <button class="btn sm" id="btnThemeLight">☀️ 极简明亮</button>
-              </div>
-            </div>
+          <div style="font-family:var(--font-serif);font-weight:700;font-size:15px;color:var(--ink);margin-bottom:12px">API 接入端点</div>
+          <div style="font-size:11.5px;color:var(--text-dim);margin-bottom:4px">当前 API Base URL:</div>
+          <div style="display:flex;gap:8px">
+            <input type="text" class="input-text mono" id="settingBaseUrl" readonly style="flex:1">
+            <button class="btn sm primary" onclick="navigator.clipboard.writeText($('settingBaseUrl').value);toast('已复制 Base URL')">复制</button>
+          </div>
+          <div style="font-size:11.5px;color:var(--text-dim);margin:14px 0 6px">外观主题:</div>
+          <div style="display:flex;gap:8px">
+            <button class="btn sm" id="btnThemeDark">◑ 暖夜</button>
+            <button class="btn sm" id="btnThemeLight">◐ 纸白</button>
           </div>
         </div>
 
         <div class="card-panel">
-          <div style="font-size:14px;font-weight:700;color:var(--text-main);margin-bottom:12px">📬 注册邮箱供应商 (临时邮箱)</div>
-          <div style="display:flex;flex-direction:column;gap:10px">
-            <div style="font-size:11.5px;color:var(--text-dim);line-height:1.6">
-              上游 2026-10 已封禁公共临时邮箱注册（AUTH-EMAIL-001）。账号池自动注册依赖带自定义域名的邮箱供应商。当前状态: <span id="mailProviderStatus" style="color:var(--accent);font-weight:600">加载中…</span>
-            </div>
-            <div>
-              <div style="font-size:11.5px;color:var(--text-dim);margin-bottom:4px">供应商:</div>
-              <select class="chat-select mono" id="mailProviderSelect" style="width:100%">
-                <option value="yyds">YYDS (maliapi.215.im · 自定义域名)</option>
-                <option value="mailtm">mail.tm (公共域名 · 大概率已被封)</option>
-              </select>
-            </div>
-            <div>
-              <div style="font-size:11.5px;color:var(--text-dim);margin-bottom:4px">YYDS API Key (AC- 开头):</div>
-              <input type="password" class="input-text mono" id="mailApiKeyInput" placeholder="AC-xxxxxxxxxxxxxxxx" autocomplete="off">
-            </div>
-            <div>
-              <div style="font-size:11.5px;color:var(--text-dim);margin-bottom:4px">私有域名 (在 YYDS 面板添加并验证后填写,留空则社区域名轮换):</div>
-              <input type="text" class="input-text mono" id="mailDomainInput" placeholder="your-domain.com" autocomplete="off">
-            </div>
-            <div>
-              <div style="font-size:11.5px;color:var(--text-dim);margin-bottom:4px">API Base (一般不用改):</div>
-              <input type="text" class="input-text mono" id="mailApiBaseInput" placeholder="https://maliapi.215.im/v1" autocomplete="off">
-            </div>
+          <div style="font-family:var(--font-serif);font-weight:700;font-size:15px;color:var(--ink);margin-bottom:12px">注册邮箱供应商</div>
+          <div style="font-size:11.5px;color:var(--text-dim);line-height:1.7;margin-bottom:10px">
+            上游已封禁公共临时邮箱注册(AUTH-EMAIL-001),自动补号依赖自定义域名供应商。当前状态: <span id="mailProviderStatus" style="color:var(--accent-strong);font-weight:600">加载中…</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:9px">
+            <select class="input-text mono" id="mailProviderSelect">
+              <option value="yyds">YYDS (maliapi.215.im · 自定义域名)</option>
+              <option value="mailtm">mail.tm (公共域名 · 大概率已被封)</option>
+            </select>
+            <input type="password" class="input-text mono" id="mailApiKeyInput" placeholder="YYDS API Key (AC- 开头)" autocomplete="off">
+            <input type="text" class="input-text mono" id="mailDomainInput" placeholder="私有域名 (留空则社区域名轮换)" autocomplete="off">
+            <input type="text" class="input-text mono" id="mailApiBaseInput" placeholder="API Base (默认 https://maliapi.215.im/v1)" autocomplete="off">
             <div style="display:flex;gap:8px;align-items:center">
               <button class="btn sm primary" id="btnSaveMailConfig">保存并生效</button>
               <button class="btn sm" id="btnTestMailConfig">测试连接</button>
               <span style="font-size:11.5px;color:var(--text-dim)" id="mailConfigHint"></span>
             </div>
-            <div style="font-size:11px;color:var(--text-dim);line-height:1.6;border-top:1px solid var(--line);padding-top:8px">
-              保存后立即生效(无需重启),并持久化到 runtime/mail-config.json(跨部署保留)。未配置有效供应商时,自动注册会持续失败,可用 <code>/api/accounts/import</code> 导入人工登录的会话。
+            <div style="font-size:10.5px;color:var(--text-muted);line-height:1.7;border-top:1px solid var(--line);padding-top:8px">
+              保存即时生效并持久化到 runtime/mail-config.json。无有效供应商时可用 <code>/api/accounts/import</code> 导入人工会话。
             </div>
           </div>
         </div>
 
         <div class="card-panel">
-          <div style="font-size:14px;font-weight:700;color:var(--text-main);margin-bottom:12px">🧹 缓存与诊断维护</div>
-          <div style="display:flex;flex-direction:column;gap:12px">
-            <div style="display:flex;justify-content:space-between;align-items:center">
-              <div>
-                <div style="font-weight:600;color:var(--text-main)">内存响应缓存</div>
-                <div style="font-size:11.5px;color:var(--text-dim)" id="settingCacheStats">已缓存: 0 命中率: 0%</div>
-              </div>
-              <button class="btn sm danger" id="btnClearCache">清理缓存</button>
+          <div style="font-family:var(--font-serif);font-weight:700;font-size:15px;color:var(--ink);margin-bottom:12px">缓存与诊断</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <div>
+              <div style="font-weight:600">内存响应缓存</div>
+              <div style="font-size:11.5px;color:var(--text-dim)" id="settingCacheStats">已缓存: 0 命中率: 0%</div>
             </div>
-            <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border-subtle);padding-top:10px">
-              <div>
-                <div style="font-weight:600;color:var(--text-main)">延迟测速 (Ping)</div>
-                <div style="font-size:11.5px;color:var(--text-dim)" id="settingPingStats">就绪状态良好</div>
-              </div>
-              <button class="btn sm" id="btnTestPing">测试延迟</button>
+            <button class="btn sm danger" id="btnClearCache">清理</button>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);padding-top:12px">
+            <div>
+              <div style="font-weight:600">延迟测速</div>
+              <div style="font-size:11.5px;color:var(--text-dim)" id="settingPingStats">就绪</div>
             </div>
+            <button class="btn sm" id="btnTestPing">测速</button>
           </div>
         </div>
       </div>
@@ -1139,13 +845,18 @@ for chunk in response:
   </div>
 </div>
 
-<!-- ================= CREATE KEY MODAL ================= -->
+<!-- ============ 创建密钥模态 ============ -->
 <div class="modal-overlay" id="createKeyModal" hidden>
   <div class="modal-box">
-    <div class="modal-title">🔑 创建新 API 密钥</div>
-    <div class="modal-desc">为第三方客户端（如 NextChat, Cherry Studio, Cursor, Claude Code）生成专属访问凭据。</div>
-    <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:18px">
-      <input type="text" class="input-text" id="modalKeyName" placeholder="密钥名称 (例如: NextChat-Production)">
+    <div class="modal-title">创建新 API 密钥</div>
+    <div class="modal-desc">为第三方客户端(Cursor / Cherry Studio / Claude Code 等)生成专属访问凭据。</div>
+    <input type="text" class="input-text" id="modalKeyName" placeholder="密钥名称 (例如: NextChat-Production)" style="width:100%;margin-bottom:16px">
+    <div id="newKeyAlert" hidden style="margin-bottom:14px">
+      <div style="font-size:11.5px;color:var(--text-dim);margin-bottom:6px">密钥仅展示一次,请立即保存:</div>
+      <div style="display:flex;gap:8px">
+        <code id="newKeyVal" class="mono" style="flex:1;word-break:break-all"></code>
+        <button class="btn sm" id="btnCopyNewKey">复制</button>
+      </div>
     </div>
     <div style="display:flex;justify-content:flex-end;gap:8px">
       <button class="btn" id="btnCloseKeyModal">取消</button>
@@ -1154,10 +865,10 @@ for chunk in response:
   </div>
 </div>
 
-<!-- ================= AUDIT DETAIL MODAL ================= -->
+<!-- ============ 审计详情模态 ============ -->
 <div class="modal-overlay" id="auditDetailModal" hidden>
   <div class="modal-box" style="max-width:700px">
-    <div class="modal-title">🔍 请求审计详情</div>
+    <div class="modal-title">请求审计详情</div>
     <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">
       <div>
         <div style="font-size:11.5px;font-weight:600;color:var(--text-dim);margin-bottom:4px">请求元数据:</div>
@@ -1177,7 +888,12 @@ for chunk in response:
 <div class="toast" id="toast"></div>
 <input type="file" id="fileUploadInput" accept="image/*,.txt,.md,.csv,.json,.py,.js,.ts,.html,.css,.xml,.yaml,.yml,.log,.sh,.env,.sql,.rb,.go,.java,.c,.cpp,.h,.rs,.toml,.ini,.cfg" multiple hidden>
 
-<!-- ================= FRONTEND LOGIC SCRIPT ================= -->
+<script>
+  try {
+    if (localStorage.getItem('sakana_theme') === 'light') document.documentElement.dataset.theme = 'light';
+  } catch {}
+</script>
+</script>
 <script>
 'use strict';
 
@@ -1897,9 +1613,9 @@ function selectChatSession(id) {
   $('chatMessages').innerHTML = '';
   $('chatHero').hidden = (sess.messages || []).length > 0;
   
-  (sess.messages || []).forEach(m => {
-    appendMsgToUI(m.role, m.content, m.reasoning, m.citations, m.files);
-  });
+   (sess.messages || []).forEach(m => {
+     appendMsgToUI(m.role, m.content, m.reasoning, m.citations, m.files, m.usage);
+   });
   renderChatSessions();
   scrollChatBottom();
 }
@@ -2353,7 +2069,14 @@ function renderMarkdown(text) {
   return `<p>${html.replace(/\n/g, '<br>')}</p>`;
 }
 
-function appendMsgToUI(role, text, reasoning = '', citations = [], files = []) {
+function renderUsageHtml(usage) {
+  if (!usage || !(usage.prompt_tokens || usage.completion_tokens)) return '';
+  const fmt = (n) => Number(n || 0).toLocaleString();
+  const speed = usage.speed_tps ? ` · ${usage.speed_tps} tok/s` : '';
+  const elapsed = usage.elapsed_s ? ` · ${usage.elapsed_s}s` : '';
+  return `<span style="color:var(--accent-ink)">↑${fmt(usage.prompt_tokens)} ↓${fmt(usage.completion_tokens)} tok</span><span>Σ ${fmt(usage.total_tokens)} tok${speed}${elapsed}</span>`;
+}
+function appendMsgToUI(role, text, reasoning = '', citations = [], files = [], usage = null) {
   $('chatHero').hidden = true;
   const container = $('chatMessages');
   const row = document.createElement('div');
@@ -2394,6 +2117,7 @@ function appendMsgToUI(role, text, reasoning = '', citations = [], files = []) {
       <div class="msg-meta">
         <b>${role === 'user' ? '你' : 'Sakana AI'}</b>
         <span>${new Date().toLocaleTimeString()}</span>
+        ${renderUsageHtml(usage)}
       </div>
       <div class="msg-bubble">
         ${filesHtml}
@@ -2511,6 +2235,8 @@ async function sendChatMessage({ fromRetry = false } = {}) {
   saveChatSessions();
   clearAttachmentDataFromDom(userRow);
 
+  const turnStart = Date.now();
+  let usageInfo = null;
   try {
     const resp = await fetch('/v1/chat/completions', {
       method: 'POST',
@@ -2565,6 +2291,7 @@ async function sendChatMessage({ fromRetry = false } = {}) {
           bodyContentEl.innerHTML = renderMarkdown(aiAnswer);
         }
         if (o.citations) aiCitations = o.citations;
+        if (o.usage) usageInfo = o.usage;
         scrollChatBottom();
       }
     }
@@ -2581,6 +2308,7 @@ async function sendChatMessage({ fromRetry = false } = {}) {
             if (delta.content) { aiAnswer += delta.content; }
             if (delta.reasoning_content) { aiReasoning += delta.reasoning_content; }
             if (o.citations) aiCitations = o.citations;
+            if (o.usage) usageInfo = o.usage;
           }
         }
       }
@@ -2588,6 +2316,15 @@ async function sendChatMessage({ fromRetry = false } = {}) {
 
     bodyContentEl.classList.remove('typing-cursor');
     bodyContentEl.innerHTML = renderMarkdown(aiAnswer);
+
+    // 完整上下文计量:输入(含附件/光学页)+输出+总速;来自服务端流尾 usage chunk。
+    if (usageInfo) {
+      const secs = Math.max(0.15, (Date.now() - turnStart) / 1000);
+      usageInfo.elapsed_s = Math.round(secs * 10) / 10;
+      usageInfo.speed_tps = usageInfo.completion_tokens ? Math.round(usageInfo.completion_tokens / secs) : 0;
+      const meta = aiRow.querySelector('.msg-meta');
+      if (meta) meta.insertAdjacentHTML('beforeend', renderUsageHtml(usageInfo));
+    }
 
     if (aiCitations.length) {
       let cBar = aiRow.querySelector('.citation-bar');
@@ -2602,7 +2339,7 @@ async function sendChatMessage({ fromRetry = false } = {}) {
       });
     }
 
-    currentSess.messages.push({ role: 'assistant', content: aiAnswer, reasoning: aiReasoning, citations: aiCitations, ts: Date.now() });
+    currentSess.messages.push({ role: 'assistant', content: aiAnswer, reasoning: aiReasoning, citations: aiCitations, ts: Date.now(), usage: usageInfo || undefined });
     saveChatSessions();
   } catch (e) {
     bodyContentEl.classList.remove('typing-cursor');
