@@ -39,7 +39,22 @@ const SHUTDOWN_DRAIN_MS = Math.max(100, parseInt(process.env.SHUTDOWN_DRAIN_MS |
 const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || '0.0.0.0';
 const API_KEY = process.env.API_KEY || '';
-const ADMIN_API_KEY = process.env.ADMIN_API_KEY || API_KEY;
+const VERSION = require('./package.json').version;
+// Persisted admin key (provision-created at runtime/admin_key, survives
+// deploys and reboots). Without this fallback, a restart with active managed
+// keys would lock panel administration forever: isAdmin requires an explicit
+// static secret while auth() already demands a valid managed key.
+function readPersistedAdminKey() {
+  for (const file of [process.env.SAKANA_ADMIN_KEY_FILE, path.join(__dirname, 'runtime', 'admin_key')]) {
+    if (!file) continue;
+    try {
+      const value = fs.readFileSync(file, 'utf8').trim();
+      if (value) return value;
+    } catch {}
+  }
+  return '';
+}
+const ADMIN_API_KEY = process.env.ADMIN_API_KEY || API_KEY || readPersistedAdminKey();
 const AUTO_SESSION = process.env.AUTO_SESSION !== 'false';
 // Full response caching is opt-in: request bodies can be very large and the
 // cache is an optimization, not part of conversation correctness.
@@ -104,12 +119,8 @@ function persistAuditLog() {
   if (!auditDirty) return;
   auditDirty = false;
   try {
-    let target = AUDIT_FILE;
-    try { if (fs.lstatSync(target).isSymbolicLink()) target = fs.realpathSync(target); } catch {}
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    const tmp = `${target}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(auditLog.slice(0, AUDIT_MAX)));
-    fs.renameSync(tmp, target);
+    const { atomicWriteState } = require('./lib/state-file');
+    atomicWriteState(AUDIT_FILE, JSON.stringify(auditLog.slice(0, AUDIT_MAX)));
   } catch {}
 }
 loadAuditLog();
@@ -129,13 +140,29 @@ const KNOWN_ERROR_CODES = new Set([
   'EMPTY-RESPONSE', 'SERVER-BUSY', 'AUTH-LOGIN-001', 'AUTH-TOKEN-001',
   'AUTH-TOKEN-002', 'AUTH-BOT-001', 'CF-403', 'RATE-LIMIT-001',
   'RATE-ANON-001', 'UPSTREAM-TIMEOUT', 'UPSTREAM-NETWORK', 'BAD-BOOTSTRAP',
-  'CONV-NOTFOUND-001', 'REQUEST-ABORTED', 'BODY_TOO_LARGE', 'INVALID_JSON',
+  'CONV-NOTFOUND-001', 'CONV-ID-INVALID', 'REQUEST-ABORTED', 'BODY_TOO_LARGE', 'INVALID_JSON',
   'MISSING-INPUT', 'ATTACHMENT_INVALID_DATA', 'ATTACHMENT_FETCH_FAILED',
   'ATTACHMENT_TOO_LARGE', 'ATTACHMENT_INVALID_SOURCE', 'TEXT_BUDGET_EXCEEDED',
   'ATTACHMENT_BUDGET_EXCEEDED', 'CONTEXT_BUDGET_EXCEEDED',
   'MULTIPART_BUDGET_EXCEEDED',
   'SERVER-SHUTDOWN', 'QUEUE_FULL', 'REQUEST-TIMEOUT',
 ]);
+
+// Admin-configured fetch targets (mail provider API base) must stay public
+// http(s) endpoints so the panel cannot be pointed at loopback/private
+// networks or odd-scheme URLs.
+function isHttpUrl(value) {
+  try { const u = new URL(String(value)); return u.protocol === 'http:' || u.protocol === 'https:'; } catch { return false; }
+}
+function isPublicHttpUrl(value) {
+  if (!isHttpUrl(value)) return false;
+  const h = new URL(String(value)).hostname.toLowerCase();
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.internal')) return false;
+  if (/^(?:127\.|10\.|192\.168\.|169\.254\.|0\.0\.0\.0)/.test(h)) return false;
+  if (/^172\.(?:1[6-9]|2\d|3[01])\./.test(h)) return false;
+  if (h === '[::1]' || h.startsWith('[fe80:') || h.startsWith('[fc') || h.startsWith('[fd')) return false;
+  return true;
+}
 
 function stableErrorCode(error, status = 500) {
   const raw = String(error?.errorCode || error?.code || '').toUpperCase();
@@ -1986,7 +2013,7 @@ const server = http.createServer(async (req, res) => {
       return res.end(fs.readFileSync(UI_HTML_PATH, 'utf8'));
     }
     if (req.method === 'GET' && p === '/health') {
-      return sendJson(res, 200, { ok: true, uptimeSec: Math.floor(process.uptime()), memory: memorySnapshot() });
+      return sendJson(res, 200, { ok: true, version: VERSION, uptimeSec: Math.floor(process.uptime()), memory: memorySnapshot() });
     }
 
     // Character card avatars are public PNGs: <img> tags cannot send
@@ -2374,6 +2401,9 @@ const server = http.createServer(async (req, res) => {
         if (provider === 'yyds' && !next.apiKey) {
           return sendJson(res, 400, { error: { message: 'YYDS provider requires an API key (AC-…)' } });
         }
+        if (!isPublicHttpUrl(next.apiBase)) {
+          return sendJson(res, 400, { error: { message: 'apiBase must be a public http(s) URL' } });
+        }
         let verified = false;
         if (provider === 'yyds' && next.apiKey) {
           try {
@@ -2397,6 +2427,7 @@ const server = http.createServer(async (req, res) => {
       if (!process.env.YYDS_API_KEY) return sendJson(res, 400, { error: { message: 'YYDS_API_KEY not configured' } });
       try {
         const apiBase = process.env.YYDS_API_BASE || 'https://maliapi.215.im/v1';
+        if (!isPublicHttpUrl(apiBase)) return sendJson(res, 400, { error: { message: 'YYDS_API_BASE must be a public http(s) URL' } });
         const r = await fetch(apiBase + '/me', {
           headers: { 'X-API-Key': process.env.YYDS_API_KEY },
           signal: AbortSignal.timeout(15000),

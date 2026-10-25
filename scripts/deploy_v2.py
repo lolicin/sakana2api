@@ -161,8 +161,19 @@ def runtime_prepare_command() -> str:
     runtime = q(RUNTIME_ROOT)
     return f'''set -eu
 mkdir -p {runtime}
+# Dangling self-referential symlinks in the runtime root (created when a
+# previous deploy moved a stage symlink onto itself) shadow real state files:
+# cp/mv below would fail through them and the fallback rm would delete the
+# only live copy. NOTE: `find -xtype l` misses ELOOP self-links (stat fails
+# with ELOOP, not ENOENT), so test -L with a followed -e instead — same class
+# as the .browser-profile dangling-link incident (c65e923).
+for f in {runtime}/*; do
+  if [ -L "$f" ] && [ ! -e "$f" ]; then rm -f "$f"; fi
+done
 if [ -d {remote}/runtime ] && [ ! -L {remote}/runtime ]; then
-  cp -a {remote}/runtime/. {runtime}/ 2>/dev/null || true
+  # -u: only copy when the source is newer, so a stale legacy runtime dir
+  # cannot clobber live state already promoted into the runtime root.
+  cp -au {remote}/runtime/. {runtime}/ 2>/dev/null || true
   rm -rf {remote}/runtime
 fi
 for name in {names}; do

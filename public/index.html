@@ -539,7 +539,7 @@ pre:not(.json-viewer) { border-radius: 10px; }
       <button class="mobile-menu-btn" id="btnOpenSidebar" type="button" aria-label="打开导航" title="打开导航">☰</button>
       <div class="topbar-title">
         <span id="pageHeaderTitle">仪表盘</span>
-        <span class="badge-tag" id="serverEnvTag">Sakana v0.19.0</span>
+        <span class="badge-tag" id="serverEnvTag">Sakana v0.19.1</span>
       </div>
       <div class="topbar-subtitle" id="pageHeaderSub">欢迎，Admin · 更新于 2026年8月16日 21:00</div>
     </div>
@@ -3069,6 +3069,10 @@ async function checkHealth() {
     const r = await fetch('/health');
     const ms = Math.round(performance.now() - start);
     if (r.ok) {
+      const h = await r.json().catch(() => ({}));
+      // Badge follows the actually-deployed version — no more stale manual
+      // badge edits on release (v0.18 badge regression class).
+      if (h.version) $('serverEnvTag').textContent = `Sakana v${h.version}`;
       $('statusDot').className = 'status-dot ok';
       $('sidebarStatusText').textContent = `在线 ${ms}ms`;
       $('statusDotWrap').title = `服务状态: 正常在线 (延迟: ${ms}ms)`;

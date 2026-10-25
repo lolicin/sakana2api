@@ -165,3 +165,32 @@ try {
   child.kill('SIGKILL');
   await new Promise((resolve) => upstreamServer.close(resolve));
 }
+
+// ---- render-result LRU -------------------------------------------------
+// Follow-up writer turns re-render an identical old-context portion; the
+// cache must serve the second pass without a browser render, and distinct
+// content must occupy distinct entries.
+{
+  const { createRequire } = await import('node:module');
+  const require = createRequire(import.meta.url);
+  const optical = require('../lib/optical-context.js');
+  const textA = '缓存验证A行。'.repeat(400);
+  const textB = '缓存验证B行。'.repeat(400);
+  const t0 = Date.now();
+  const first = await optical.renderTextToPages(textA, { density: 'medium', maxPages: 2 });
+  const firstMs = Date.now() - t0;
+  const t1 = Date.now();
+  const second = await optical.renderTextToPages(textA, { density: 'medium', maxPages: 2 });
+  const secondMs = Date.now() - t1;
+  assert.ok(first.pages.length === second.pages.length
+    && first.pages.every((p, i) => p.buf.equals(second.pages[i].buf)), 'cached pass returns identical pages');
+  assert.ok(secondMs < firstMs, `cache hit must skip the render (${secondMs}ms < ${firstMs}ms)`);
+  const stats1 = optical.__renderCacheStats();
+  assert.equal(stats1.entries, 1, `one entry after repeat render (bytes=${stats1.bytes})`);
+  await optical.renderTextToPages(textB, { density: 'medium', maxPages: 2 });
+  const stats2 = optical.__renderCacheStats();
+  assert.equal(stats2.entries, 2, 'distinct content creates a distinct entry');
+  assert.ok(stats2.bytes > 0 && stats2.bytes <= 64 * 1024 * 1024, `cache bytes bounded (${stats2.bytes})`);
+  await optical.closeRenderer();
+  console.log(`optical render cache tests: all passed (hit ${secondMs}ms vs render ${firstMs}ms)`);
+}

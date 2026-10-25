@@ -16,6 +16,11 @@ PASS = os.environ.get('SAKANA_SSH_PASS', cfg.get('PASS', ''))
 if not HOST or not USER:
     raise SystemExit('Set SAKANA_SSH_HOST and SAKANA_SSH_USER before verifying')
 
+# Test key comes from the environment only (commit 56aab402 convention).
+TEST_KEY = os.environ.get('SAKANA_TEST_KEY', '')
+if not TEST_KEY:
+    raise SystemExit('Set SAKANA_TEST_KEY before verifying (never hardcode keys)')
+
 ssh = None
 for attempt in range(3):
     try:
@@ -35,11 +40,12 @@ def run(cmd, timeout=300):
 
 def call_api(payload, timeout=180):
     body = json.dumps(payload).replace('"', '\\"')
-    cmd = f'''curl -s -m {timeout} -X POST http://127.0.0.1:8787/v1/chat/completions -H 'content-type: application/json' -d "{body}" '''
+    cmd = (f'''curl -s -m {timeout} -X POST http://127.0.0.1:8787/v1/chat/completions '''
+           f'''-H 'content-type: application/json' -H 'Authorization: Bearer {TEST_KEY}' -d "{body}" ''')
     return run(cmd)
 
 print('[1] health:', run('curl -s -m 10 http://127.0.0.1:8787/health', 30).strip())
-print('[2] models:', run('curl -s -m 10 http://127.0.0.1:8787/v1/models', 30).strip()[:120])
+print('[2] models:', run(f"curl -s -m 10 http://127.0.0.1:8787/v1/models -H 'Authorization: Bearer {TEST_KEY}'", 30).strip()[:120])
 
 r = call_api({"model": "sakana-namazu", "messages": [{"role": "user", "content": "Reply with exactly: PROXY-OK"}], "stream": False})
 try:
@@ -74,6 +80,23 @@ print('[8] health:', run('curl -s -m 10 http://127.0.0.1:8787/health', 30).strip
 print('[9] stats:', run('curl -s -m 10 http://127.0.0.1:8787/api/stats', 30)[:160])
 print('[10] keys (open):', run('curl -s -m 10 http://127.0.0.1:8787/api/keys', 30)[:120])
 print('[11] conversations:', run('curl -s -m 20 "http://127.0.0.1:8787/v1/conversations?p=0"', 60)[:120])
+
+# [12] code model — rides the fugu-max upstream; guards the v0.19 remap against
+# upstream registry drift (a rename here breaks code/mini families at once).
+r = call_api({"model": "sakana-code", "messages": [{"role": "user", "content": "Reply with exactly: CODE-OK"}], "stream": False})
+try:
+    j = json.loads(r)
+    print('[12] code model (fugu-max):', j.get('choices')[0]['message']['content'][:60])
+except Exception:
+    print('[12] code model RAW:', r[:200])
+
+# [13] streaming — SSE first byte must arrive while generation is still running.
+stream_cmd = ("curl -s -N -m 120 -X POST http://127.0.0.1:8787/v1/chat/completions "
+              f"-H 'content-type: application/json' -H 'Authorization: Bearer {TEST_KEY}' "
+              "-d '{\"model\":\"sakana\",\"messages\":[{\"role\":\"user\",\"content\":\"Count 1 to 5, digits only, space separated\"}],\"stream\":true}' | head -c 800")
+t0 = time.time()
+r = run(stream_cmd)
+print('[13] stream (first 800B, %.1fs):' % (time.time() - t0), r[:300].replace('\n', ' | '))
 
 ssh.close()
 print('DONE')
