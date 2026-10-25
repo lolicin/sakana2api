@@ -10,8 +10,11 @@ export DISPLAY=:99
 # the state-only runtime dir and survives deploys; keep secrets out of git.
 [[ -f ./runtime/env.sh ]] && source ./runtime/env.sh
 export HOST="${HOST:-127.0.0.1}"
-if [[ "$HOST" != "127.0.0.1" && "$HOST" != "localhost" && "$HOST" != "::1" && -z "${API_KEY:-}" ]]; then
-  echo "API_KEY is required when HOST is publicly reachable" >&2
+# A public bind requires a credential: either an explicit API_KEY or the
+# persisted runtime admin key (server.js loads it as ADMIN_API_KEY; managed
+# business keys live in keys.json). Both count as "not running an open proxy".
+if [[ "$HOST" != "127.0.0.1" && "$HOST" != "localhost" && "$HOST" != "::1" && -z "${API_KEY:-}" && ! -f ./runtime/admin_key ]]; then
+  echo "API_KEY (or runtime/admin_key) is required when HOST is publicly reachable" >&2
   exit 1
 fi
 # Defaults match lib/account-pool.js; override them in the environment.

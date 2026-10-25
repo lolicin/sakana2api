@@ -267,13 +267,17 @@ node -e "const fs=require('fs');const p='account_pool.json';'''
             print(output.strip())
 
         if not args.upload_only:
+            # Public bind (panel at http://<server>:8787): start_sakana.sh's
+            # guard accepts the persisted runtime admin key as the required
+            # credential; server.js loads it as ADMIN_API_KEY. Managed
+            # business keys stay hash-only in keys.json.
             restart = f'''set -eu
 if command -v ss >/dev/null 2>&1; then
   pid=$(ss -tlnp 2>/dev/null | grep ':8787' | grep -oP 'pid=\\K[0-9]+' | head -1 || true)
   if [ -n "$pid" ]; then kill "$pid" || true; fi
 fi
 cd {q(REMOTE)}
-setsid nohup bash scripts/start_sakana.sh >/dev/null 2>&1 &
+HOST=0.0.0.0 setsid nohup bash scripts/start_sakana.sh >/dev/null 2>&1 &
 sleep 5
 curl -fsS -m 15 http://127.0.0.1:8787/health
 '''
