@@ -243,12 +243,30 @@ state_names = {RUNTIME_STATE_BASENAMES!r}
 directory_names = {sorted(RUNTIME_DIR_BASENAMES)!r}
 runtime.mkdir(parents=True, exist_ok=True)
 plans = []
+def same_target(raw, source, target):
+    raw_text = str(raw)
+    device_prefix = chr(92) * 2 + '?' + chr(92)
+    if raw_text.startswith(device_prefix) or raw_text.startswith('//?/') or os.path.isabs(raw_text):
+        candidate = raw_text
+    else:
+        candidate = os.path.join(str(source.parent), raw_text)
+    def normalize(value):
+        text = str(value).replace(chr(92), '/')
+        if text.startswith('//?/'):
+            text = text[4:]
+        return os.path.normcase(os.path.normpath(text))
+    return normalize(candidate) == normalize(target)
 
 # Refuse ambiguous links and conflicts before copying anything. Every source is
 # retained so interrupted releases can be diagnosed or retried without data loss.
+# Older releases left a small, known class of self-links for unused compatibility
+# state files; preserve those links, while rejecting every other runtime link.
 for item in runtime.iterdir():
     if item.is_symlink():
-        raise RuntimeError(f'unknown or cyclic runtime symlink: {{item}}')
+        raw = os.readlink(item)
+        expected = str(item)
+        if item.name not in state_names or raw != expected:
+            raise RuntimeError(f'unknown or cyclic runtime symlink: {{item}}')
 
 legacy_runtime = remote / 'runtime'
 if legacy_runtime.is_symlink():
@@ -274,7 +292,9 @@ for name in state_names:
     source = remote / name
     target = runtime / name
     if source.is_symlink():
-        if source.resolve(strict=False) != target.resolve(strict=False):
+        raw = os.readlink(source)
+        expected = str(target)
+        if not same_target(raw, source, target):
             raise RuntimeError(f'root state link points elsewhere: {{source}}')
         continue
     if source.exists():
@@ -286,7 +306,9 @@ for name in directory_names:
     source = remote / name
     target = runtime / name
     if source.is_symlink():
-        if source.resolve(strict=False) != target.resolve(strict=False):
+        raw = os.readlink(source)
+        expected = str(target)
+        if not same_target(raw, source, target):
             raise RuntimeError(f'root data link points elsewhere: {{source}}')
         continue
     if source.exists():
@@ -349,7 +371,7 @@ def deploy(args) -> None:
         stage_q = q(stage)
         runtime_q = q(RUNTIME_ROOT)
         names = ' '.join(q(name) for name in RUNTIME_STATE_BASENAMES)
-        profile_links = ' '.join(
+        profile_links = '\n'.join(
             f"ln -s {runtime_q}/{q(name)} {stage_q}/{q(name)}"
             for name in sorted(RUNTIME_DIR_BASENAMES)
         )
