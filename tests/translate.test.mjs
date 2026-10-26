@@ -294,25 +294,42 @@ console.log('== 13b. INPUT-MODE-001 硬约束:思考与搜索互斥,搜索优先
   check('think model + explicit search off -> thinking on', thinkModelSearchOff.enableThinking === true && thinkModelSearchOff.webSearchEnabled === false);
 }
 
-console.log('== 13b-2. smart routing: code/writer chainSearch ==');
+console.log('== 13b-2. opt-in routing: code/writer chainSearch ==');
 {
-  const code = openaiRequestToSakana({ model: 'sakana-code', messages: [{ role: 'user', content: 'fix bug' }] });
-  check('code model defaults to chainSearch', code.route.chainSearch === true && code.enableThinking === true && code.webSearchEnabled === false);
-
-  const writer = openaiRequestToSakana({ model: 'sakana-writer-mini', messages: [{ role: 'user', content: 'novel' }] });
-  check('writer model defaults to chainSearch', writer.route.chainSearch === true);
-
-  const standard = openaiRequestToSakana({ model: 'sakana', messages: [{ role: 'user', content: 'hi' }] });
-  check('standard model stays single round', standard.route.chainSearch === false && standard.route.family === 'standard');
-
-  const codeExplicitSearch = openaiRequestToSakana({ model: 'sakana-code', web_search: true, messages: [{ role: 'user', content: 'fix bug' }] });
-  check('code model explicit search falls back to single round', codeExplicitSearch.route.chainSearch === false && codeExplicitSearch.webSearchEnabled === true && codeExplicitSearch.enableThinking === false);
-
-  const codeNoThink = openaiRequestToSakana({ model: 'sakana-code', enable_thinking: false, messages: [{ role: 'user', content: 'fix bug' }] });
-  check('code model with thinking off skips chain', codeNoThink.route.chainSearch === false);
-
-  const toolTurn = openaiRequestToSakana({ model: 'sakana-code', messages: [{ role: 'user', content: 'q' }, { role: 'tool', tool_call_id: 't1', content: 'res' }] });
-  check('tool turn skips search chain', toolTurn.route.chainSearch === true && toolTurn.isToolTurn === true);
+  const previous = process.env.SAKANA_SEARCH_CHAIN;
+  delete process.env.SAKANA_SEARCH_CHAIN;
+  try {
+    for (const model of ['sakana-code', 'sakana-code-mini', 'sakana-writer', 'sakana-writer-mini']) {
+      const request = openaiRequestToSakana({ model, messages: [{ role: 'user', content: 'local task' }] });
+      check(`${model} defaults to one thinking round`, request.route.chainSearch === false && request.enableThinking === true && request.webSearchEnabled === false);
+      for (const search_chain of ['on', 'auto', true]) {
+        const enabled = openaiRequestToSakana({ model, search_chain, messages: [{ role: 'user', content: 'research task' }] });
+        check(`${model} honors explicit search_chain=${search_chain}`, enabled.route.chainSearch === true);
+      }
+    }
+    const standard = openaiRequestToSakana({ model: 'sakana', search_chain: 'on', messages: [{ role: 'user', content: 'hi' }] });
+    check('standard model stays single round', standard.route.chainSearch === false && standard.route.family === 'standard');
+    for (const envMode of ['on', 'auto']) {
+      process.env.SAKANA_SEARCH_CHAIN = envMode;
+      const enabled = openaiRequestToSakana({ model: 'sakana-code', messages: [{ role: 'user', content: 'fix bug' }] });
+      check(`environment ${envMode} opts in`, enabled.route.chainSearch === true);
+      for (const search_chain of ['off', false]) {
+        const disabled = openaiRequestToSakana({ model: 'sakana-code', search_chain, messages: [{ role: 'user', content: 'fix bug' }] });
+        check(`body ${search_chain} overrides environment ${envMode}`, disabled.route.chainSearch === false);
+      }
+    }
+    process.env.SAKANA_SEARCH_CHAIN = 'off';
+    const override = openaiRequestToSakana({ model: 'sakana-writer', search_chain: 'on', messages: [{ role: 'user', content: 'research' }] });
+    check('explicit body on overrides environment off', override.route.chainSearch === true);
+    const codeExplicitSearch = openaiRequestToSakana({ model: 'sakana-code', search_chain: 'on', web_search: true, messages: [{ role: 'user', content: 'fix bug' }] });
+    check('explicit search stays single round', codeExplicitSearch.route.chainSearch === false && codeExplicitSearch.webSearchEnabled === true && codeExplicitSearch.enableThinking === false);
+    const codeNoThink = openaiRequestToSakana({ model: 'sakana-code', search_chain: 'on', enable_thinking: false, messages: [{ role: 'user', content: 'fix bug' }] });
+    check('thinking off skips chain', codeNoThink.route.chainSearch === false);
+    const toolTurn = openaiRequestToSakana({ model: 'sakana-code', messages: [{ role: 'user', content: 'q' }, { role: 'tool', tool_call_id: 't1', content: 'res' }] });
+    check('tool turn defaults to one round', toolTurn.route.chainSearch === false && toolTurn.isToolTurn === true);
+  } finally {
+    if (previous === undefined) delete process.env.SAKANA_SEARCH_CHAIN; else process.env.SAKANA_SEARCH_CHAIN = previous;
+  }
 }
 
 console.log('== 13b-3. search-chain helpers ==');
@@ -349,9 +366,9 @@ console.log('== 13c. system prompt and RP injection ==');
   }
 
   const codeProfile = openaiRequestToSakana({ model: 'sakana-code', messages: [{ role: 'system', content: 'SYS-X' }, { role: 'user', content: '修复这个 bug' }] });
-  check('code protocol rides above user system', codeProfile.prompt.startsWith('[Code 模式协议') && codeProfile.prompt.includes('SYS-X'), codeProfile.prompt.slice(0, 60));
+  check('code guidance preserves system and requested output', /代码|编程/.test(codeProfile.prompt) && codeProfile.prompt.includes('SYS-X') && !/思考链|深度思考优先|完整可运行文件|严格遵守|\[Code 模式/.test(codeProfile.prompt), codeProfile.prompt.slice(0, 160));
   const writerProfile = openaiRequestToSakana({ model: 'sakana-writer', messages: [{ role: 'user', content: '继续写' }] });
-  check('writer protocol injected', writerProfile.prompt.startsWith('[写作模式协议'), writerProfile.prompt.slice(0, 40));
+  check('writer guidance keeps continuity without a bracketed protocol', /人物|连贯|设定/.test(writerProfile.prompt) && !/模式协议|严格遵守|以文档为准/.test(writerProfile.prompt), writerProfile.prompt.slice(0, 160));
   const plainProfile = openaiRequestToSakana({ model: 'sakana', messages: [{ role: 'user', content: 'hi' }] });
   check('standard profile has no extra protocol', !plainProfile.prompt.includes('模式协议'), plainProfile.prompt.slice(0, 40));
 
@@ -533,6 +550,60 @@ console.log('== 22. Tool Round-Trip Execution Context Injection ==');
   check('tool result recognized', r.isToolTurn === true);
   check('isContinue stays false (tool result is a fresh input, upstream ignores inputs on is_continue)', r.isContinue === false);
   check('tool result injected into continuation prompt', r.prompt.includes('Sunny') && r.prompt.includes('get_weather'));
+}
+
+console.log('== 23. canonical prompt override is authoritative before packaging ==');
+{
+  const rawBytes = Buffer.from('raw file that was replaced during normalization');
+  const canonicalBytes = Buffer.from('resolved canonical attachment');
+  const body = { model: 'sakana', context_format: 'json', messages: [{ role: 'user', content: [
+    { type: 'text', text: 'RAW-TEXT-MUST-NOT-LEAK'.repeat(1000) },
+    { type: 'file', name: 'raw.txt', data: `data:text/plain;base64,${rawBytes.toString('base64')}` },
+  ] }] };
+  const options = {
+    normalizedPrompt: '[用户]\nCANONICAL-SHORT-ONLY',
+    normalizedMessages: [{ role: 'user', parts: [{ kind: 'text', text: 'CANONICAL-SHORT-ONLY' }] }],
+    attachments: [{ id: 'canonical-file', name: 'resolved.txt', mime: 'text/plain', buf: canonicalBytes }],
+  };
+  const r = openaiRequestToSakana(body, options);
+  check('normalized prompt avoids raw long-document packaging', r.prompt === '[用户]\nCANONICAL-SHORT-ONLY' && !r.files.some((file) => file.synthetic), r.prompt.slice(0, 100));
+  check('canonical attachment replaces raw extraction exactly once', r.files.length === 1 && r.files[0].name === 'resolved.txt' && r.files[0].buf.equals(canonicalBytes));
+  const empty = openaiRequestToSakana(body, { normalizedPrompt: '', normalizedMessages: [], attachments: [] });
+  check('an empty canonical prompt never falls back to raw history', empty.prompt === '' && empty.files.length === 0);
+}
+
+console.log('== 24. structured canonical tool turns retain identity and pairing ==');
+{
+  const graph = [
+    { role: 'assistant', parts: [{ kind: 'tool_call', id: 'call-exact', name: 'lookup_exact', arguments: { marker: 'ARG-EXACT' } }] },
+    { role: 'tool', name: 'lookup_exact', tool_call_id: 'call-exact', parts: [{ kind: 'text', text: 'RESULT-EXACT' }] },
+  ];
+  const prompt = normalizedMessagesToPrompt(graph);
+  check('tool-call ID and result pairing are present', prompt.includes('call-exact') && prompt.includes('lookup_exact') && prompt.includes('ARG-EXACT') && prompt.includes('RESULT-EXACT'), prompt);
+  const r = openaiRequestToSakana({ model: 'sakana', messages: [{ role: 'user', content: 'RAW-NON-TOOL' }] }, { normalizedPrompt: prompt, normalizedMessages: graph, attachments: [] });
+  check('canonical graph determines tool-turn status', r.isToolTurn === true && !r.prompt.includes('RAW-NON-TOOL'));
+}
+
+console.log('== 25. neutral long-context wrapper preserves the task contract ==');
+{
+  for (const context_format of ['txt', 'json']) {
+    const r = openaiRequestToSakana({ model: 'sakana', context_format, messages: [
+      { role: 'system', content: 'EARLIER-SYSTEM-EXACT' },
+      { role: 'user', content: 'body '.repeat(3000) },
+      { role: 'user', content: 'LATEST-TASK-EXACT: return only a function.' },
+    ] }, {
+      normalizedPrompt: '[系统]\nEARLIER-SYSTEM-EXACT\n\n[用户]\n' + 'body '.repeat(3000) + '\n\n[用户]\nLATEST-TASK-EXACT: return only a function.',
+      normalizedMessages: [
+        { role: 'system', parts: [{ kind: 'text', text: 'EARLIER-SYSTEM-EXACT' }] },
+        { role: 'user', parts: [{ kind: 'text', text: 'body '.repeat(3000) }] },
+        { role: 'user', parts: [{ kind: 'text', text: 'LATEST-TASK-EXACT: return only a function.' }] },
+      ],
+      attachments: [],
+    });
+    check(`${context_format} wrapper explains transported conversation and latest task`, /对话/.test(r.prompt) && /最新.*用户|最后.*用户/.test(r.prompt) && r.prompt.includes('LATEST-TASK-EXACT'));
+    check(`${context_format} wrapper imposes no exclusive facts or citations`, !/唯一事实来源|事实必须|引用时注明|以文档为准|严格遵守|文档使用协议/.test(r.prompt), r.prompt.slice(0, 400));
+    check(`${context_format} wrapper does not demand scaffolding recitation`, !/\[系统提示:|共 \d+ 字符|meta 元信息/.test(r.prompt), r.prompt.slice(0, 400));
+  }
 }
 
 process.exit(failures ? 1 : 0);

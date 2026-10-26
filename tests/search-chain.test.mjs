@@ -1,6 +1,6 @@
-// Integration test for the code/writer "search→think" two-round smart routing.
-// A fake upstream records every generation and answers round 1 (search-only)
-// with sources, round 2 (thinking) with the final answer.
+// Integration test for opt-in code/writer search→think routing.
+// The default request gets one thinking round; an explicit opt-in collects
+// search sources before the final thinking round.
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
@@ -13,6 +13,7 @@ const upstreamState = {
   nextConversation: 1,
   conversations: new Map(),
   generations: [],
+  requests: [],
 };
 
 async function readRequest(req) {
@@ -35,6 +36,7 @@ function ndjson(res, events) {
 
 const upstreamServer = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://fake-upstream');
+  upstreamState.requests.push(`${req.method} ${url.pathname}`);
   if (req.method === 'POST' && url.pathname === '/api/conversation') {
     await readRequest(req);
     const id = `conv-${upstreamState.nextConversation++}`;
@@ -89,6 +91,7 @@ const child = spawn(process.execPath, ['server.js'], {
     SAKANA_BASE: `http://127.0.0.1:${upstreamPort}`,
     SAKANA_COOKIE: 'fake-cookie=fake',
     CACHE_ENABLED: 'false',
+    SAKANA_SEARCH_CHAIN: '',
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -114,8 +117,8 @@ async function chatStream(payload) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  assert.equal(response.status, 200, `chat status ${response.status}`);
   const text = await response.text();
+  assert.equal(response.status, 200, `chat status ${response.status}: ${text}\nupstream requests: ${upstreamState.requests.join(', ')}\n${childOutput.join('')}`);
   const chunks = [];
   let done = false;
   for (const line of text.split('\n')) {
@@ -130,11 +133,22 @@ async function chatStream(payload) {
 try {
   await waitForServer();
 
-  // 1. code model → two-round chain
-  const first = await chatStream({ model: 'sakana-code', stream: true, messages: [{ role: 'user', content: 'sakana api 是什么?' }] });
-  assert.equal(upstreamState.generations.length, 2, `expected two generations, got ${upstreamState.generations.length}`);
-  const round1 = upstreamState.generations[0];
-  const round2 = upstreamState.generations[1];
+  // Default code/writer requests stay within one thinking generation.
+  for (const model of ['sakana-code', 'sakana-writer']) {
+    const beforeDefault = upstreamState.generations.length;
+    const result = await chatStream({ model, stream: true, messages: [{ role: 'user', content: `default local task for ${model}` }] });
+    assert.equal(upstreamState.generations.length - beforeDefault, 1, `${model} default stays single-round`);
+    assert.equal(upstreamState.generations.at(-1).enableThinking, true);
+    assert.equal(upstreamState.generations.at(-1).webSearchEnabled, false);
+    assert.equal(result.chunks.some((chunk) => chunk.choices?.[0]?.delta?.reasoning_content?.includes('正在搜索')), false);
+  }
+
+  // Explicit search_chain:on preserves the two-round contract.
+  const beforeChain = upstreamState.generations.length;
+  const first = await chatStream({ model: 'sakana-code', search_chain: 'on', stream: true, messages: [{ role: 'user', content: 'sakana api 是什么?' }] });
+  assert.equal(upstreamState.generations.length - beforeChain, 2, 'explicit chain uses two generations');
+  const round1 = upstreamState.generations[beforeChain];
+  const round2 = upstreamState.generations[beforeChain + 1];
   assert.equal(round1.webSearchEnabled, true, 'round 1 runs with search on');
   assert.equal(round1.enableThinking, false, 'round 1 runs with thinking off');
   assert.equal(round2.enableThinking, true, 'round 2 is the thinking round');

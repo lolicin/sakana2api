@@ -170,8 +170,8 @@ try {
   assert.ok(firstFile, '15KB prompt is a real multipart context file');
   const firstDecoded = firstFile.decoded.toString('utf8');
   assert.ok(firstDecoded.includes('START-15K') && firstDecoded.includes('MID-15K') && firstDecoded.includes('END-15K'));
-  assert.equal(sha256(firstFile.decoded), sha256(Buffer.from(novel15k, 'utf8')));
-  assert.equal(firstFile.decoded.length, Buffer.byteLength(novel15k, 'utf8'));
+  assert.equal(sha256(firstFile.decoded), sha256(Buffer.from(`[用户]\n${novel15k}`, 'utf8')));
+  assert.equal(firstFile.decoded.toString('utf8'), `[用户]\n${novel15k}`, 'the TXT transport retains the complete canonical role-prefixed turn');
 
   const conversationId = first.body.conversation_id;
   assert.ok(conversationId);
@@ -188,21 +188,26 @@ try {
     ],
   });
   assert.equal(second.response.status, 200);
-  assert.equal(second.body.conversation_id, conversationId);
+  const secondConversationId = second.body.conversation_id;
+  assert.ok(secondConversationId);
+  assert.notEqual(secondConversationId, conversationId, 'full history always starts a new upstream conversation');
   const secondGeneration = upstreamState.generations[1];
-  assert.equal(secondGeneration.id, conversationId);
-  assert.ok(String(secondGeneration.data.inputs).includes('SECOND-TURN-MARKER'));
-  assert.equal(String(secondGeneration.data.inputs).includes('START-15K'), false, 'full history sends only new suffix');
-  assert.equal(upstreamState.gets, getsBeforeSecond + 1, 'cached leaf avoids a preflight GET; finalization performs one refresh');
+  assert.equal(secondGeneration.id, secondConversationId);
+  const secondFile = secondGeneration.files.find((file) => file.filename === 'base64;context_document.txt');
+  const secondSource = secondFile.decoded.toString('utf8');
+  assert.ok(secondSource.includes('START-15K') && secondSource.includes('MID-15K') && secondSource.includes('END-15K'));
+  assert.ok(secondSource.includes('reply-1') && secondSource.includes('SECOND-TURN-MARKER'), 'full history keeps prior assistant output and the new user turn');
+  assert.equal(upstreamState.gets, getsBeforeSecond + 1, 'the new conversation refreshes its own final leaf');
 
   const delta = await chat({
     model: 'sakana-namazu',
     stream: false,
-    conversation_id: conversationId,
+    history_mode: 'delta',
+    conversation_id: secondConversationId,
     messages: [{ role: 'user', content: 'DELTA-TURN-MARKER' }],
   });
   assert.equal(delta.response.status, 200);
-  assert.equal(delta.body.conversation_id, conversationId);
+  assert.equal(delta.body.conversation_id, secondConversationId);
   assert.ok(String(upstreamState.generations[2].data.inputs).includes('DELTA-TURN-MARKER'));
 
   const novel200k = `START-200K\n${'春雨落在纸页上。'.repeat(15000)}\nMID-200K\n${'远方的列车穿过雪线。'.repeat(15000)}\nEND-200K`;
@@ -233,7 +238,7 @@ try {
   assert.equal(sha256(Buffer.from(attachmentSlice)), sha256(Buffer.from(attachment)));
   assert.ok(attachmentPayload.length > attachment.length, `text attachment is not truncated before upstream: ${attachmentPayload.length}`);
 
-  assert.equal(upstreamState.compacts, 3, `each conversation compacts once: ${upstreamState.compacts}`);
+  assert.equal(upstreamState.compacts, 4, `each fresh conversation compacts once, later delta stays on its existing conversation: ${upstreamState.compacts}`);
 
   // JSON packaging (context_format:'json'): turn-structured context document.
   const jsonTurnA = `JSON-CH1\n${'第一章内容。'.repeat(2200)}\nMID-CH1`;
@@ -261,9 +266,9 @@ try {
   assert.ok(jsonParsed.turns[0].content.includes('JSON-CH1') && jsonParsed.turns[0].content.includes('MID-CH1'), 'json turn 1 intact');
   assert.ok(jsonParsed.turns[2].content.includes('END-CH2'), 'json turn 3 intact');
   const requestText = String(jsonGeneration.data.inputs);
-  assert.ok(requestText.includes('文档使用协议'), 'document protocol injected above user system');
-  assert.ok(requestText.includes('唯一事实来源'), 'document protocol present');
-  assert.ok(requestText.includes('sakana-context/1'), 'json wrapper mentions the schema');
+  assert.equal(requestText.includes('文档使用协议'), false, 'transport scaffolding does not impose a competing response protocol');
+  assert.equal(requestText.includes('唯一事实来源'), false, 'long-context transport does not demand fact citations');
+  assert.ok(requestText.includes('sakana-context/1'), 'json wrapper names its attachment format');
   assert.ok(requestText.length < 6000, 'visible prompt stays bounded while document is attached');
 
   console.log(`long-context upstream tests: all passed (generations=${upstreamState.generations.length}, gets=${upstreamState.gets}, compacts=${upstreamState.compacts})`);

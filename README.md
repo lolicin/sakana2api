@@ -277,8 +277,8 @@ Gemini 客户端(SillyTavern、RisuAI 等)可把本代理当作 Gemini API 直�
 - Gemini 形态 `{ contents:[{role,parts:[{text|inlineData|functionCall}]}],
   systemInstruction, generationConfig, safetySettings }` 可打到**任意端点**;
 - OpenAI `messages[]` 形态也可打到 Gemini 端点;
-- `contents` 全量历史重放由会话粘性自动承接(按首条 user 消息绑定上游会话);
-  尾部的 assistant 轮自动剥除(等价于重新生成);
+- `contents` 会话历史按客户端提交内容处理；默认是 `history_mode: "full"`，不会根据首条 user 文本自动把不同用户合并到同一会话。
+- 只有明确的 `history_mode: "delta"` 才会续接已有会话，并且必须提供当前凭据拥有的 `conversation_id`、`chat_id`、`thread_id` 或对应请求头；状态过期、跨 Key 或模型不匹配会返回 4xx，不会静默重建。
 - `safetySettings` 兼容字段会被忽略；安全策略由上游模型和标准模型配置决定。
 - 响应中 `reasoning_content` 映射为 Gemini 的 `thought: true` part;
 - 扩展字段透传:`character_id` / `conversation_id`。
@@ -302,7 +302,9 @@ curl "http://127.0.0.1:8787/v1beta/models/gemini-2.5-flash:streamGenerateContent
 - 超过长文阈值的文本会生成 `context_document.txt` multipart 附件并保留完整 UTF-8 内容,默认不做 50KB 静默裁剪
 - 远程 URL(`https://…`)自动下载
 
-长文本续聊支持 `history_mode: "full" | "delta"`。显式 `conversation_id` 默认按 delta 处理；full 模式只发送上游尚未拥有的消息后缀。上下文预算、附件字节数、multipart 大小和 compact 状态会进入 telemetry；超出显式预算时返回稳定的输入错误。
+长文本请求会按规范化后的完整消息图生成 `context_document.txt` 或 `context_document.json`，保留 system/user/assistant/tool 轮次和附件引用；写作光学压缩无法覆盖全文时会保留完整原文，不会静默丢弃中间内容。
+
+长文本续聊支持 `history_mode: "full" | "delta"`：默认和显式 `full` 都以本次完整历史为准并建立新的上游分支；只有显式 `delta` 加上拥有的会话 ID 才会续接已有上游会话。浏览器面板会自动发送浏览器级 `x-client-session-id`，并与 API Key 一起隔离会话。
 
 ### 🎭 角色卡(酒馆/SillyTavern 格式)
 
@@ -356,8 +358,9 @@ sakana-2api/
 | 变量 | 默认 | 说明 |
 |------|------|------|
 | `PORT` | `8787` | 监听端口 |
-| `HOST` | `0.0.0.0` | 监听地址(公网部署必须设置 API_KEY) |
-| `API_KEY` | – | 静态管理密钥(Bearer)。设置后密钥面板需用它解锁;未设置时面板直开 |
+| `HOST` | `0.0.0.0` | 监听地址；公网部署必须配置 `API_KEY` 或持久化 `runtime/admin_key` |
+| `API_KEY` | – | 静态管理员密钥；设置后管理面板与密钥管理需用它解锁 |
+| `ADMIN_API_KEY` | – | 管理员密钥覆盖项；未设置时可从 `runtime/admin_key` 持久化读取 |
 | `AUTO_SESSION` | `true` | 自动浏览器登录与账号池维护;`false` 时只使用 `SAKANA_SESSION_FILE`，不启动浏览器或维护账号池 |
 | `SAKANA_SESSION_FILE` | `session.json` | 手动/legacy fallback 会话文件路径 |
 | `SAKANA_ACCOUNT_POOL_FILE` | `account_pool.json` | 账号池持久化文件路径 |
@@ -392,11 +395,10 @@ sakana-2api/
 | 状态 | 行为 |
 |------|------|
 | 开放模式(默认) | 无 API_KEY 且无 Key → 所有接口免鉴权,面板直开 |
-| Key 模式 | 面板创建 ≥1 个 Key 后 → `/v1/*` 与 `/api/stats` 需 `Authorization: Bearer <key>` |
-| 管理锁 | 设置 `API_KEY` 环境变量后 → 密钥增删需用该静态密钥解锁;Key 仍可正常调用 API |
+| Key 模式 | 存在业务 Key 或管理员密钥时 → `/v1/*` 需有效业务/管理员密钥，管理端点需管理员密钥 |
+| 管理锁 | 设置 `API_KEY`、`ADMIN_API_KEY` 或持久化 `runtime/admin_key` 后 → 管理端点保持管理员保护 |
 
-> Key 存储于 `keys.json`(sha256 哈希,gitignored)。撤销全部 Key 后自动回到开放模式,
-> 不会锁死服务。`/` 与 `/health` 始终公开(供健康检查)。
+> 没有任何静态/持久化/业务密钥时才是开放模式。撤销全部业务 Key 不会在管理员密钥仍存在时重新开放服务。
 
 ---
 
@@ -414,9 +416,7 @@ sakana-2api/
   只从 `SAKANA_SESSION_FILE` 读取一个显式会话。
 - **临时邮箱**: 每个新账户一个 mail.tm 临时邮箱(独立账号),免费额度绑定账号
   (Namazu $12.5/天、Fugu $6.25/周)。
-- **多轮对话**: 自动上下文续接(无需传 conversation_id,按首条 user 消息自动绑定
-  同一会话与同一上游账户);也可显式传 `conversation_id`。流式响应头带
-  `x-conversation-id`。
+- **多轮对话**: 默认请求按客户端提供的完整历史建立独立会话；需要增量续聊时显式使用 `history_mode:"delta"` 和当前凭据拥有的 `conversation_id`。流式响应头带 `x-conversation-id`。管理面板会自动附加浏览器级会话范围标识。
 - **工具调用(外部框架)**: 客户端可声明 `tools` 并自行执行,然后把结果作为
   `role:"tool"` 消息回传,代理会把它交给模型继续生成(标准 OpenAI 工具回路)。
   Sakana 侧原生工具(search/python/command)由上游自动执行并透传 `tool_calls` 增量。

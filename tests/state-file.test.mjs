@@ -68,15 +68,15 @@ check('relative symlink: resolves against link dir', () => {
   assert.ok(fs.lstatSync(link).isSymbolicLink());
 });
 
-// 4) self-referential loop (the ELOOP leftover class): must not hang, must
-//    not lose data — resolver caps hops and writes the final resolved path
-check('self-referential loop: capped, link not destroyed', () => {
+// Cyclic paths must fail before rename can replace the symlink.
+check('self-referential loop: write rejected, link preserved', () => {
   const dir = path.join(tmpRoot, 'f');
   fs.mkdirSync(dir, { recursive: true });
   const link = path.join(dir, 'tokens.json');
-  fs.symlinkSync(link, link); // self-loop
-  const resolved = resolveStateTarget(link);
-  assert.equal(resolved, link, 'cap returns the loop tail');
+  fs.symlinkSync(link, link);
+  assert.throws(() => resolveStateTarget(link), { code: 'STATE_PATH_LOOP' });
+  assert.throws(() => atomicWriteState(link, '{}'), { code: 'STATE_PATH_LOOP' });
+  assert.ok(fs.lstatSync(link).isSymbolicLink());
 });
 
 // 5) plain file path (no symlink): ordinary atomic write

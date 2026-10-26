@@ -9,6 +9,8 @@ import os
 from pathlib import Path, PurePosixPath
 import posixpath
 import shlex
+import stat
+import subprocess
 import tarfile
 import time
 
@@ -25,17 +27,23 @@ RUNTIME_STATE_BASENAMES = (
     'keys.json',
     'tempmail.json',
     'tokens.json',
+    'mail-config.json',
+    'audit-log.json',
+    'yyds-domain-scores.json',
 )
+RUNTIME_DIR_BASENAMES = {'.browser-profile', 'character_cards'}
 EXCLUDE_DIR_BASENAMES = {
     '.git', '.zcode', 'node_modules', '.playwright-mcp', '.browser-profile',
-    '.chrome-sakana-profile', 'character_cards', 'runtime', '__pycache__',
+    '.chrome-sakana-profile', 'character_cards', 'runtime', '__pycache__', 'target',
 }
+
 EXCLUDE_RELATIVE_PATHS = {
     'runtime', 'scripts/.ssh_secret.json', 'scripts/.env', 'scripts/.env.local',
 }
 EXCLUDE_BASENAMES = set(RUNTIME_STATE_BASENAMES) | {
     '.ssh_secret.json', 'server.log', 'mailmsg.json', 'mailtoken.json',
-    'success_sample.json', 'Dockerfile.local',
+    'success_sample.json', 'Dockerfile.local', 'private.pem', 'admin_key',
+    '.admin_key', 'credentials.json', 'cookies.json',
 }
 EXCLUDE_SUFFIXES = (
     '.log', '.exe', '.zip', '.tar', '.tar.gz', '.tgz', '.gz', '.7z', '.rar',
@@ -61,12 +69,15 @@ def is_env_file(name: str) -> bool:
 
 def should_exclude(path: Path) -> bool:
     rel = relative_path(path)
+    parts = PurePosixPath(rel).parts
     basename = PurePosixPath(rel).name
     if rel == 'runtime' or rel.startswith('runtime/'):
         return True
+    if any(part in EXCLUDE_DIR_BASENAMES for part in parts):
+        return True
     if rel in EXCLUDE_RELATIVE_PATHS or basename in EXCLUDE_BASENAMES:
         return True
-    if basename.startswith('.') and basename not in {'.gitignore', '.dockerignore'}:
+    if basename.startswith('.') and basename not in {'.gitignore', '.dockerignore', '.gitattributes'}:
         return True
     if is_env_file(basename) or basename.endswith(EXCLUDE_SUFFIXES):
         return True
@@ -78,17 +89,81 @@ def should_exclude_dir(root: Path, dirname: str) -> bool:
     return dirname in EXCLUDE_DIR_BASENAMES or rel in EXCLUDE_RELATIVE_PATHS or rel == 'runtime'
 
 
-def build_archive() -> io.BytesIO:
+def _tracked_paths() -> list[str]:
+    try:
+        result = subprocess.run(
+            ['git', '-C', str(PROJECT_ROOT), 'ls-files', '-z'],
+            check=True, capture_output=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise RuntimeError('deployment archive requires a readable Git index') from error
+    return [item.decode('utf-8') for item in result.stdout.split(b'\0') if item]
+
+
+def _is_sensitive(path: str) -> bool:
+    basename = PurePosixPath(path).name.lower()
+    return (
+        is_env_file(basename) or basename in {'.ssh_secret.json', '.admin_key', 'admin_key', 'credentials.json', 'cookies.json'}
+        or basename in RUNTIME_STATE_BASENAMES
+        or basename.endswith(('.pem', '.key', '.p12', '.pfx'))
+    )
+
+
+def _tracked_mode(rel: str) -> int:
+    result = subprocess.run(
+        ['git', '-C', str(PROJECT_ROOT), 'ls-files', '--stage', '--', rel],
+        check=True, capture_output=True,
+    ).stdout.decode('utf-8', 'replace')
+    mode = result.split(None, 1)[0] if result else ''
+    return 0o755 if mode == '100755' else 0o644
+
+
+def build_archive(*, include: tuple[str, ...] | list[str] = ()) -> io.BytesIO:
+    paths = _tracked_paths()
+    for raw in include:
+        candidate = PurePosixPath(raw)
+        if candidate.is_absolute() or '..' in candidate.parts or not candidate.parts:
+            raise RuntimeError(f'invalid explicit release path: {raw}')
+        rel = candidate.as_posix()
+        if should_exclude(PROJECT_ROOT / rel) or _is_sensitive(rel):
+            raise RuntimeError(f'explicit release path is excluded or sensitive: {rel}')
+        if not (PROJECT_ROOT / rel).is_file():
+            raise RuntimeError(f'explicit release file does not exist: {rel}')
+        if rel not in paths:
+            paths.append(rel)
+
+    versions = {}
+    for rel in paths:
+        if _is_sensitive(rel):
+            raise RuntimeError(f'sensitive or runtime state file is tracked: {rel}')
+        if should_exclude(PROJECT_ROOT / rel):
+            continue
+        if rel in {'package.json', 'package-lock.json'}:
+            try:
+                versions[rel] = json.loads((PROJECT_ROOT / rel).read_text(encoding='utf-8'))['version']
+            except (OSError, KeyError, json.JSONDecodeError) as error:
+                raise RuntimeError(f'invalid package version metadata in {rel}') from error
+    if len(versions) != 2 or versions['package.json'] != versions['package-lock.json']:
+        raise RuntimeError('package.json and package-lock.json versions must match')
+
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode='w:gz') as archive:
-        for root, dirs, files in os.walk(PROJECT_ROOT):
-            root_path = Path(root)
-            dirs[:] = [d for d in dirs if not should_exclude_dir(root_path, d)]
-            for filename in files:
-                local_path = root_path / filename
-                if should_exclude(local_path):
-                    continue
-                archive.add(local_path, arcname=relative_path(local_path))
+        for rel in sorted(set(paths)):
+            local_path = PROJECT_ROOT / rel
+            if should_exclude(local_path):
+                continue
+            if local_path.is_symlink():
+                raise RuntimeError(f'release source may not be a symlink: {rel}')
+            data = local_path.read_bytes()
+            if rel == '.gitattributes':
+                pass
+            elif local_path.suffix.lower() in {'.sh', '.py', '.js', '.mjs', '.json', '.md', '.html', '.yml', '.yaml'}:
+                data = data.replace(b'\r\n', b'\n')
+            info = tarfile.TarInfo(rel)
+            info.size = len(data)
+            info.mode = _tracked_mode(rel)
+            info.mtime = 0
+            archive.addfile(info, io.BytesIO(data))
     buffer.seek(0)
     return buffer
 
@@ -156,35 +231,78 @@ def q(value: str) -> str:
 
 
 def runtime_prepare_command() -> str:
-    names = ' '.join(q(name) for name in RUNTIME_STATE_BASENAMES)
-    remote = q(REMOTE)
-    runtime = q(RUNTIME_ROOT)
     return f'''set -eu
-mkdir -p {runtime}
-# Dangling self-referential symlinks in the runtime root (created when a
-# previous deploy moved a stage symlink onto itself) shadow real state files:
-# cp/mv below would fail through them and the fallback rm would delete the
-# only live copy. NOTE: `find -xtype l` misses ELOOP self-links (stat fails
-# with ELOOP, not ENOENT), so test -L with a followed -e instead — same class
-# as the .browser-profile dangling-link incident (c65e923).
-for f in {runtime}/*; do
-  if [ -L "$f" ] && [ ! -e "$f" ]; then rm -f "$f"; fi
-done
-if [ -d {remote}/runtime ] && [ ! -L {remote}/runtime ]; then
-  # -u: only copy when the source is newer, so a stale legacy runtime dir
-  # cannot clobber live state already promoted into the runtime root.
-  cp -au {remote}/runtime/. {runtime}/ 2>/dev/null || true
-  rm -rf {remote}/runtime
-fi
-for name in {names}; do
-  if [ -e {remote}/$name ] || [ -L {remote}/$name ]; then
-    if [ ! -e {runtime}/$name ] && [ ! -L {runtime}/$name ]; then
-      mv {remote}/$name {runtime}/$name
-    else
-      rm -rf {remote}/$name
-    fi
-  fi
-done
+SAKANA_REMOTE={q(REMOTE)} SAKANA_RUNTIME={q(RUNTIME_ROOT)} python3 - <<'PY'
+import os
+from pathlib import Path
+import shutil
+
+remote = Path(os.environ['SAKANA_REMOTE'])
+runtime = Path(os.environ['SAKANA_RUNTIME'])
+state_names = {RUNTIME_STATE_BASENAMES!r}
+directory_names = {sorted(RUNTIME_DIR_BASENAMES)!r}
+runtime.mkdir(parents=True, exist_ok=True)
+plans = []
+
+# Refuse ambiguous links and conflicts before copying anything. Every source is
+# retained so interrupted releases can be diagnosed or retried without data loss.
+for item in runtime.iterdir():
+    if item.is_symlink():
+        raise RuntimeError(f'unknown or cyclic runtime symlink: {{item}}')
+
+legacy_runtime = remote / 'runtime'
+if legacy_runtime.is_symlink():
+    if legacy_runtime.resolve(strict=False) != runtime.resolve(strict=False):
+        raise RuntimeError(f'legacy runtime link points elsewhere: {{legacy_runtime}}')
+elif legacy_runtime.exists():
+    if not legacy_runtime.is_dir():
+        raise RuntimeError(f'legacy runtime path is not a directory: {{legacy_runtime}}')
+    for source in sorted(legacy_runtime.rglob('*')):
+        if source.is_symlink():
+            raise RuntimeError(f'legacy runtime contains a symlink: {{source}}')
+        if source.is_file():
+            target = runtime / source.relative_to(legacy_runtime)
+            if target.exists():
+                raise RuntimeError(f'conflicting durable state: {{target}}')
+            plans.append((source, target, False))
+        elif source.is_dir():
+            target = runtime / source.relative_to(legacy_runtime)
+            if target.exists() and not target.is_dir():
+                raise RuntimeError(f'conflicting durable directory: {{target}}')
+
+for name in state_names:
+    source = remote / name
+    target = runtime / name
+    if source.is_symlink():
+        if source.resolve(strict=False) != target.resolve(strict=False):
+            raise RuntimeError(f'root state link points elsewhere: {{source}}')
+        continue
+    if source.exists():
+        if target.exists():
+            raise RuntimeError(f'conflicting root and durable state: {{source}} / {{target}}')
+        plans.append((source, target, False))
+
+for name in directory_names:
+    source = remote / name
+    target = runtime / name
+    if source.is_symlink():
+        if source.resolve(strict=False) != target.resolve(strict=False):
+            raise RuntimeError(f'root data link points elsewhere: {{source}}')
+        continue
+    if source.exists():
+        if not source.is_dir():
+            raise RuntimeError(f'root data path is not a directory: {{source}}')
+        if target.exists():
+            raise RuntimeError(f'conflicting root and durable directory: {{source}} / {{target}}')
+        plans.append((source, target, True))
+
+for source, target, is_directory in plans:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if is_directory:
+        shutil.copytree(source, target, symlinks=False)
+    else:
+        shutil.copy2(source, target)
+PY
 '''
 
 
@@ -212,7 +330,12 @@ def deploy(args) -> None:
     stage = f'{REMOTE}.release-{release_id}'
     backup = f'{REMOTE}.previous-{release_id}'
     archive_path = f'/tmp/sakana-2api-{release_id}.tar.gz'
-    archive = build_archive()
+    archive = build_archive(include=(
+        'CHANGELOG.md',
+        'lib/chat-response.js',
+        'lib/conversation-lock.js',
+        'lib/remote-fetch.js',
+    ))
     print(f'Connected to {credentials["host"]}; archive={archive.getbuffer().nbytes / 1024:.0f} KB')
     try:
         code, _, error = remote_command(ssh, f'mkdir -p {q(REMOTE)}')
@@ -226,14 +349,18 @@ def deploy(args) -> None:
         stage_q = q(stage)
         runtime_q = q(RUNTIME_ROOT)
         names = ' '.join(q(name) for name in RUNTIME_STATE_BASENAMES)
+        profile_links = ' '.join(
+            f"ln -s {runtime_q}/{q(name)} {stage_q}/{q(name)}"
+            for name in sorted(RUNTIME_DIR_BASENAMES)
+        )
         prepare = f'''set -eu
 rm -rf {stage_q}
 mkdir -p {stage_q}
 tar xzf {q(archive_path)} -C {stage_q}
 rm -f {q(archive_path)}
 ln -s {runtime_q} {stage_q}/runtime
-for name in {names}; do ln -s {runtime_q}/$name {stage_q}/$name 2>/dev/null || true; done
-ln -s {runtime_q}/.browser-profile {stage_q}/.browser-profile 2>/dev/null || true
+for name in {names}; do ln -s {runtime_q}/$name {stage_q}/$name; done
+{profile_links}
 cd {stage_q}
 npm ci --omit=dev
 node --check server.js

@@ -16,12 +16,15 @@ const { autoSession } = require('./lib/auto-session');
 const { Stats, KeyStore } = require('./lib/stats');
 const { AccountPool } = require('./lib/account-pool');
 const { Cache } = require('./lib/cache');
-const { ContextStore, firstUserText, lastUserText } = require('./lib/context');
+const { ContextStore, contextScope, explicitContextId } = require('./lib/context');
+const { ConversationLocks } = require('./lib/conversation-lock');
 const { normalizeRequestBody, AttachmentError } = require('./lib/request-normalizer');
-const { buildNormalizedSakanaRequest } = require('./lib/request-assembly');
+const { buildNormalizedSakanaRequest, requestedHistoryMode } = require('./lib/request-assembly');
 const { makeContextSnapshot, decideContext } = require('./lib/context-policy');
-const { concurrencyManager } = require('./lib/concurrency');
+const { safeUrl: safeRemoteUrl, fetchRemoteJson } = require('./lib/remote-fetch');
 const { abortCode, abortError: makeAbortError } = require('./lib/abort');
+const { concurrencyManager } = require('./lib/concurrency');
+const { chatResponse } = require('./lib/chat-response');
 const optical = require('./lib/optical-context');
 const { parsePngCard, normalizeCard, saveCard, loadCard, listCards, buildCardSystemText } = require('./lib/character-card');
 const { buildRpSystem, resolveRpPreset, resolveRpNsfw, resolveRpLength } = require('./lib/rp-preset');
@@ -61,10 +64,9 @@ const AUTO_SESSION = process.env.AUTO_SESSION !== 'false';
 // cache is an optimization, not part of conversation correctness.
 const CACHE_ENABLED = process.env.CACHE_ENABLED === 'true';
 const CONTEXT_COMPACT_THRESHOLD_BYTES = parseInt(process.env.CONTEXT_COMPACT_THRESHOLD_BYTES || '0', 10);
-// writer profile gets an automatic upstream-side conversation compaction
-// threshold when the global one is unset — long novels keep the tree healthy.
-// Set WRITER_COMPACT_THRESHOLD_BYTES=0 to disable it explicitly.
-const WRITER_COMPACT_THRESHOLD_BYTES = parseInt(process.env.WRITER_COMPACT_THRESHOLD_BYTES || String(64 * 1024), 10);
+// Upstream compaction changes remembered details, so it requires an explicit
+// operator threshold rather than silently summarizing writing/code sessions.
+const WRITER_COMPACT_THRESHOLD_BYTES = parseInt(process.env.WRITER_COMPACT_THRESHOLD_BYTES || '0', 10);
 // Optical second-stage compression (DeepSeek-OCR style): for writer requests
 // whose packaged document exceeds this many bytes, the older portion renders
 // into columnar page images; the recent tail stays as the txt attachment.
@@ -149,20 +151,8 @@ const KNOWN_ERROR_CODES = new Set([
   'SERVER-SHUTDOWN', 'QUEUE_FULL', 'REQUEST-TIMEOUT',
 ]);
 
-// Admin-configured fetch targets (mail provider API base) must stay public
-// http(s) endpoints so the panel cannot be pointed at loopback/private
-// networks or odd-scheme URLs.
-function isHttpUrl(value) {
-  try { const u = new URL(String(value)); return u.protocol === 'http:' || u.protocol === 'https:'; } catch { return false; }
-}
 function isPublicHttpUrl(value) {
-  if (!isHttpUrl(value)) return false;
-  const h = new URL(String(value)).hostname.toLowerCase();
-  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.internal')) return false;
-  if (/^(?:127\.|10\.|192\.168\.|169\.254\.|0\.0\.0\.0)/.test(h)) return false;
-  if (/^172\.(?:1[6-9]|2\d|3[01])\./.test(h)) return false;
-  if (h === '[::1]' || h.startsWith('[fe80:') || h.startsWith('[fc') || h.startsWith('[fd')) return false;
-  return true;
+  try { safeRemoteUrl(value); return true; } catch { return false; }
 }
 
 function stableErrorCode(error, status = 500) {
@@ -178,6 +168,8 @@ function stableErrorCode(error, status = 500) {
   if (raw === 'BODY_TOO_LARGE') return raw;
   if (raw === 'INVALID_JSON' || raw === 'MISSING-INPUT') return raw;
   if (/^ATTACHMENT(?:_|$)|^INVALID_ATTACHMENT/.test(raw)) return 'ATTACHMENT-ERROR';
+  if (/^CONTEXT_(?:EXPIRED|ID_REQUIRED|ID_INVALID|MODE_INVALID|MODEL_MISMATCH)$/.test(raw)) return raw;
+  if (raw === 'QUEUE_FULL') return raw;
   if (/^CONTEXT-/.test(raw) || raw === 'CONV-NOTFOUND-001') return 'CONTEXT-ERROR';
   if (/^AUTH-|^CF-403$/.test(raw)) return 'AUTHENTICATION-ERROR';
   if (/^RATE-|^RATE-LIMIT$/.test(raw)) return 'RATE-LIMIT';
@@ -192,13 +184,14 @@ function stableErrorCode(error, status = 500) {
 }
 
 function errorCategory(code, status = 500) {
+  if (code === 'RP-MODEL-DISABLED') return 'client';
   if (code === 'REQUEST-ABORTED') return 'canceled';
   if (code === 'REQUEST-TIMEOUT') return 'timeout';
   if (code === 'SERVER-SHUTDOWN') return 'shutdown';
   if (code === 'AUTHENTICATION-ERROR') return 'authentication';
   if (code === 'RATE-LIMIT' || code === 'SERVER-BUSY') return 'rate_limit';
   if (code === 'ATTACHMENT-ERROR') return 'attachment';
-  if (code === 'CONTEXT-ERROR') return 'context';
+  if (code === 'CONTEXT-ERROR' || code.startsWith('CONTEXT_')) return 'context';
   if (code === 'FORBIDDEN') return 'forbidden';
   if (code === 'NOT-FOUND') return 'not_found';
   if (code === 'INVALID-REQUEST' || code === 'BODY_TOO_LARGE' || code === 'INVALID_JSON' || code === 'MISSING-INPUT') return 'client';
@@ -625,7 +618,7 @@ function extractToken(req) {
 
 function auth(req) {
   const activeKeys = keyStore.keys.filter((k) => !k.revoked).length;
-  if (!API_KEY && activeKeys === 0) return true;
+  if (!API_KEY && !ADMIN_API_KEY && activeKeys === 0 && keyStore.keys.length === 0) return true;
   const tok = extractToken(req);
   if (API_KEY && tok === API_KEY) return true;
   if (ADMIN_API_KEY && tok === ADMIN_API_KEY) return true;
@@ -636,7 +629,7 @@ function auth(req) {
 
 function isAdmin(req) {
   const activeKeys = keyStore.keys.filter((k) => !k.revoked).length;
-  if (!ADMIN_API_KEY && activeKeys === 0) return true;
+  if (!ADMIN_API_KEY && activeKeys === 0 && keyStore.keys.length === 0) return true;
   const tok = extractToken(req);
   // Managed API keys are for business endpoints only. Operational metadata and
   // key management require the explicitly configured static admin secret.
@@ -667,23 +660,46 @@ function isRetryableAccountError(err) {
 }
 
 function clearContextForAccountRetry(body, req = null) {
-  const oldIds = [body.conversation_id, body.chat_id, body.thread_id,
-    req?.headers?.['x-conversation-id'], req?.headers?.['x-thread-id']].filter(Boolean);
-  const resolved = (typeof contextStore?.lookup === 'function')
-    ? contextStore.lookup(req || {}, body)
-    : null;
-  if (resolved?.conversationId) oldIds.push(resolved.conversationId);
-  for (const id of new Set(oldIds)) contextStore.clearConversation?.(id);
-  body.conversation_id = undefined;
-  body.chat_id = undefined;
-  body.thread_id = undefined;
-  if (req?.headers) {
-    delete req.headers['x-conversation-id'];
-    delete req.headers['x-thread-id'];
+  if (requestedHistoryMode(body) === 'delta') {
+    const resolved = contextStore.lookup(req || {}, body);
+    if (resolved) contextStore.clearConversation(resolved.conversationId, req || {});
+    throw contextError('CONTEXT_EXPIRED');
   }
+  req?.__newContextRelease?.();
+  if (req) req.__newContextRelease = null;
   Object.defineProperty(body, '__forceNewContext', { value: true, enumerable: false, configurable: true, writable: true });
   Object.defineProperty(body, '__ignoreExplicitContext', { value: true, enumerable: false, configurable: true, writable: true });
   Object.defineProperty(body, '__contextRebuildAttempted', { value: true, enumerable: false, configurable: true, writable: true });
+}
+
+function waitForLease(signal, delay = 50) {
+  if (signal?.aborted) return Promise.reject(makeAbortError(signal.reason));
+  return new Promise((resolve, reject) => {
+    const cleanup = () => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); };
+    const onAbort = () => { cleanup(); reject(makeAbortError(signal.reason)); };
+    const timer = setTimeout(() => { cleanup(); resolve(); }, delay);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+  });
+}
+
+async function leaseForTurn(model, entry, excludedAccounts, owner, signal) {
+  const deadline = Date.now() + Math.max(1000, Number(process.env.QUEUE_TIMEOUT_MS) || 60000);
+  for (;;) {
+    if (signal?.aborted) throw makeAbortError(signal.reason);
+    if (entry) {
+      const account = accountPool.get(entry.accountId);
+      if (!account || account.state !== 'active') throw contextError('CONTEXT_EXPIRED');
+      const lease = accountPool.lease(model, { accountId: entry.accountId, owner });
+      if (lease) return lease;
+    } else {
+      const lease = accountPool.lease(model, { excludeIds: [...excludedAccounts], owner });
+      if (lease) return lease;
+      if (!accountPool.activeCount()) throw Object.assign(new Error('no active Sakana account'), { errorCode: 'AUTH-LOGIN-001', status: 503 });
+    }
+    if (Date.now() >= deadline) throw Object.assign(new Error('account capacity unavailable'), { code: 'SERVER-BUSY', status: 429 });
+    await waitForLease(signal);
+  }
 }
 
 // ---- native tool-round continuation ---------------------------------------
@@ -826,9 +842,10 @@ async function runSearchChainRound(conversationId, sakanaReq, { lastMessageId, s
 async function maybeApplyOpticalCompression(sakanaReq, signal) {
   if (!sakanaReq?.route || sakanaReq.route.family !== 'writer') return;
   if (process.env.OPTICAL_CONTEXT === '0') return;
-  const docIndex = (sakanaReq.files || []).findIndex((f) => f && f.synthetic && /^context_document\.(txt|json)$/.test(f.name));
+  const docIndex = (sakanaReq.files || []).findIndex((f) => f && f.synthetic && /^context_document(?:-\d+)?\.(txt|json)$/.test(f.name));
   if (docIndex === -1) return;
   const doc = sakanaReq.files[docIndex];
+  if (/\.json$/i.test(doc.name)) return;
   const fullText = doc.buf.toString('utf8');
   if (doc.buf.length < OPTICAL_CONTEXT_THRESHOLD) return;
   const keepChars = Math.min(Math.floor(fullText.length * 0.3), 100_000);
@@ -841,7 +858,7 @@ async function maybeApplyOpticalCompression(sakanaReq, signal) {
     maxPages: parseInt(process.env.OPTICAL_MAX_PAGES || '8', 10),
     signal,
   });
-  if (!rendered.pages.length) return;
+  if (!rendered.pages.length || rendered.truncated) return;
 
   const pageFiles = rendered.pages.map((page, i) => ({
     type: 'base64',
@@ -852,15 +869,15 @@ async function maybeApplyOpticalCompression(sakanaReq, signal) {
   }));
   const recentFile = {
     ...doc,
-    name: 'context_document.txt',
+    name: doc.name,
     mime: 'text/plain',
     buf: Buffer.from(recentPart, 'utf8'),
   };
   sakanaReq.files.splice(docIndex, 1, ...pageFiles, recentFile);
   const lastPage = String(rendered.pages.length).padStart(2, '0');
   sakanaReq.prompt = sakanaReq.prompt.replace(
-    '... [文档主体内容已挂载至附件 context_document.txt] ...',
-    `[文档较早部分已按阅读顺序渲染为图片 context_page-01..${lastPage},请先读取全部图片页;较近部分保留在附件 context_document.txt]`,
+    `... [文档主体内容已挂载至附件 ${doc.name}] ...`,
+    `[较早对话按顺序位于 context_page-01..${lastPage}.png，先读取全部图片页；最近内容位于 ${doc.name}。按最后的用户请求作答。]`,
   );
   console.log(`[optical] writer document compressed: ${oldPart.length} chars -> ${rendered.pages.length} pages (density=${rendered.density}, truncated=${rendered.truncated})`);
 }
@@ -870,6 +887,42 @@ async function maybeApplyOpticalCompression(sakanaReq, signal) {
 // keep the legacy call shapes AND bind the request-scoped account via
 // AsyncLocalStorage when the caller doesn't pass one explicitly.
 const contextStore = new ContextStore();
+const conversationLocks = new ConversationLocks();
+
+function contextError(code, status = 409) {
+  return Object.assign(new Error('conversation context unavailable; replay full history and original attachments'), { code, errorCode: code, status });
+}
+
+async function beginContextTurn(req, body) {
+  assertStandardModel(body.model || 'sakana');
+  const mode = requestedHistoryMode(body);
+  if (mode !== 'full' && mode !== 'delta') throw contextError('CONTEXT_MODE_INVALID', 400);
+  const id = explicitContextId(req, body);
+  if (mode !== 'delta') return { entry: null, release: () => {} };
+  if (!id) throw contextError('CONTEXT_ID_REQUIRED', 400);
+  const existing = contextStore.lookup(req, body);
+  if (!existing) throw contextError('CONTEXT_EXPIRED');
+  const release = await conversationLocks.acquire(`${contextScope(req)}:${existing.conversationId}`, { signal: req.__signal });
+  const entry = contextStore.lookup(req, body);
+  if (!entry || entry.conversationId !== existing.conversationId) {
+    release();
+    throw contextError('CONTEXT_EXPIRED');
+  }
+  if (entry.model && entry.model !== (body.model || 'sakana')) {
+    release();
+    throw contextError('CONTEXT_MODEL_MISMATCH');
+  }
+  return { entry, release };
+}
+
+async function registerConversation(req, body, conversationId, lastMessageId, snapshot, signal) {
+  const store = als.getStore();
+  if (!store?.ctxEntry && store) {
+    req.__newContextRelease = await conversationLocks.acquire(`${contextScope(req)}:${conversationId}`, { signal });
+  }
+  saveContext(req, body, conversationId, lastMessageId, null, snapshot);
+}
+
 
 function lookupContext(req, body) {
   if (typeof req === 'string') return contextStore.lookup(req);
@@ -879,27 +932,16 @@ function lookupContext(req, body) {
 function saveContext(req, body, conversationId, lastMessageId, explicitAccountId = null, snapshot = null) {
   if (!conversationId) return;
   const bound = als.getStore();
-  const previous = contextStore.getByConversationId(conversationId) || (typeof req === 'string' ? contextStore.lookup(req) : contextStore.lookup(req, body));
-  const requestedMode = String(body?.history_mode || body?.historyMode || '').toLowerCase();
-  const explicitContextId = body?.conversation_id || body?.chat_id || body?.thread_id ||
-    (req?.headers && (req.headers['x-conversation-id'] || req.headers['x-thread-id'])) || '';
-  const delta = requestedMode === 'delta' || (!!explicitContextId && !requestedMode);
-  const effectiveSnapshot = delta && previous && snapshot
-    ? {
-        ...snapshot,
-        firstMessageFingerprint: previous.firstMessageFingerprint || snapshot.firstMessageFingerprint,
-        messageCount: Math.max(Number(previous.messageCount) || 0, Number(snapshot.messageCount) || 0),
-      }
-    : snapshot;
-  if (typeof req === 'string') {
-    const result = contextStore.save(req, undefined, conversationId, lastMessageId, explicitAccountId, effectiveSnapshot);
-    if (lastMessageId) contextStore.updateLeaf(conversationId, lastMessageId, effectiveSnapshot);
-    return result;
-  }
-  const accountId = explicitAccountId || (bound && bound.session && bound.session.id) || '';
-  const result = contextStore.save(req, body, conversationId, lastMessageId, accountId, effectiveSnapshot);
-  if (lastMessageId) contextStore.updateLeaf(conversationId, lastMessageId, effectiveSnapshot);
-  return result;
+      const previous = contextStore.getByConversationId(conversationId, req);
+  const delta = requestedHistoryMode(body) === 'delta';
+  const effectiveSnapshot = {
+    ...(snapshot || {}),
+    model: body?.model || 'sakana',
+    messageCount: (delta ? Number(previous?.messageCount) || 0 : 0) + (Number(snapshot?.messageCount) || 0),
+    contextTokens: bound?.contextTokens ?? snapshot?.contextTokens ?? previous?.contextTokens ?? 0,
+  };
+  const accountId = explicitAccountId || bound?.session?.id || '';
+  contextStore.save(req, body, conversationId, lastMessageId, accountId, effectiveSnapshot);
 }
 
 async function refreshContextLeaf(conversationId, fallback = '', signal) {
@@ -1015,6 +1057,7 @@ function injectRpRules(sakanaReq, req, body) {
 
 /** main: POST /v1/chat/completions */
 async function handleChatCompletions(req, res) {
+  const start = Date.now();
   const raw = await readBody(req);
   let body;
   try { body = JSON.parse(raw.toString('utf8')); }
@@ -1026,7 +1069,10 @@ async function handleChatCompletions(req, res) {
     try {
       body = geminiRequestToChat(body, { model: req.headers['x-target-model'] || body.model || '', stream: body.stream !== false });
     } catch (error) {
-      if (isRpModelError(error)) return sendRpModelError(res, error);
+      if (isRpModelError(error)) {
+        auditEntry(req, body, 400, null, error, Date.now() - start);
+        return sendRpModelError(res, error);
+      }
       throw error;
     }
   }
@@ -1064,6 +1110,24 @@ async function handleGeminiGenerate(req, res, route, url) {
 
 /** 所有聊天入口共用的管线(角色卡注入 / 并发控制 / 容错重试)。 */
 async function handleChatBody(req, res, body, start = Date.now()) {
+  let turn;
+  try {
+    turn = await beginContextTurn(req, body);
+    return await handleChatBodyInner(req, res, body, start);
+  } catch (error) {
+    if (isRpModelError(error)) {
+      auditEntry(req, body, 400, null, error, Date.now() - start);
+      return sendRpModelError(res, error);
+    }
+    throw error;
+  } finally {
+    req.__newContextRelease?.();
+    req.__newContextRelease = null;
+    turn?.release();
+  }
+}
+
+async function handleChatBodyInner(req, res, body, start = Date.now()) {
   let normalized;
   let contextSnapshot;
   // Long-context packaging format: body field wins, x-context-format header
@@ -1143,45 +1207,14 @@ async function handleChatBody(req, res, body, start = Date.now()) {
     let ctxEntry = null;
     for (let attempt = 0; ; attempt++) {
       const contextForcedNew = !!body.__forceNewContext || !!body.__ignoreExplicitContext;
-      const lookedUp = contextForcedNew ? null : lookupContext(req, body);
-      const explicitContextId = contextForcedNew ? '' : body.conversation_id || body.chat_id || body.thread_id ||
-        req.headers['x-conversation-id'] || req.headers['x-thread-id'] || '';
-        const contextDecision = decideContext({
-          explicitId: explicitContextId,
-          stored: lookedUp,
-          client: contextSnapshot,
-          rebuildAttempted: !!body.__contextRebuildAttempted,
-          historyMode: body.history_mode || body.historyMode || '',
-        });
-        if (contextDecision.action === 'rebuild' && !body.__contextRebuildAttempted) {
-          clearContextForAccountRetry(body, req);
-          ctxEntry = null;
-        } else {
-        ctxEntry = contextDecision.action === 'fork' ? null : lookedUp;
-        if (contextDecision.action === 'fork') clearContextForAccountRetry(body, req);
-      }
-        if (contextDecision.reason === 'CONTEXT-REBUILD-FAILED') {
-          throw Object.assign(new Error('conversation context could not be rebuilt'), { errorCode: contextDecision.reason, status: 409 });
-        }
+      const lookedUp = contextForcedNew || requestedHistoryMode(body) !== 'delta' ? null : lookupContext(req, body);
+      ctxEntry = lookedUp;
+      if (requestedHistoryMode(body) === 'delta' && !ctxEntry) throw contextError('CONTEXT_EXPIRED');
 
-      let lease = null;
-      if (AUTO_SESSION && ctxEntry && ctxEntry.accountId && !excludedAccounts.has(ctxEntry.accountId)) {
-        lease = accountPool.lease(model, { accountId: ctxEntry.accountId, owner: req.headers['x-request-id'] || '' });
-        if (!lease) {
-          // A dead or saturated affinity account cannot be used for this turn.
-          // Rebuild on a fresh account instead of sending the old conversation
-          // id to an account that cannot see it.
-          excludedAccounts.add(ctxEntry.accountId);
-          ctxEntry = null;
-          clearContextForAccountRetry(body, req);
-        }
-      }
-      if (!lease && AUTO_SESSION) {
-        lease = accountPool.lease(model, { excludeIds: [...excludedAccounts], owner: req.headers['x-request-id'] || '' });
-      }
-      const boundAccount = lease
-        ? lease.account
-        : await getSession().catch(() => null);
+      const lease = AUTO_SESSION
+        ? await leaseForTurn(model, ctxEntry, excludedAccounts, req.headers['x-request-id'] || '', signal)
+        : null;
+      const boundAccount = lease ? lease.account : await getSession().catch(() => null);
       if (!boundAccount) {
         const noAccount = Object.assign(new Error('no active Sakana account'), { errorCode: 'AUTH-LOGIN-001', status: 503 });
         if (lease) accountPool.releaseLease(lease, false, { error: noAccount.message });
@@ -1234,7 +1267,10 @@ async function handleChatBody(req, res, body, start = Date.now()) {
       if (isRpModelError(e)) {
         return sendRpModelError(res, e);
       }
-      sendJson(res, status, { error: { message: safe.message, type: safe.category === 'client' ? 'invalid_request_error' : 'upstream_error', code: safe.code } });
+      const errorType = safe.code === 'RP-MODEL-DISABLED' || safe.category === 'client'
+        ? 'invalid_request_error'
+        : 'upstream_error';
+      sendJson(res, status, { error: { message: safe.message, type: errorType, code: safe.code } });
     }
   } finally {
     if (acquired) concurrencyManager.release();
@@ -1268,7 +1304,7 @@ async function handleChatInner(req, res, body, start, ctxEntry) {
       const textParts = [];
       const remaining = [];
       for (const f of sakanaReq.files) {
-        if (f.synthetic && /^context_document\.(txt|json)$/.test(f.name)) {
+        if (f.synthetic && /^context_document(?:-\d+)?\.(txt|json)$/.test(f.name)) {
           remaining.push(f);
           continue;
         }
@@ -1321,6 +1357,7 @@ async function handleChatInner(req, res, body, start, ctxEntry) {
       conversationId = boot.conversationId;
       stats.convCreated();
       lastMessageId = boot.systemMessageId;
+      await registerConversation(req, body, conversationId, lastMessageId, { ...contextSnapshot, messageCount: 0 }, signal);
     } else if (!lastMessageId) {
       lastMessageId = await upstream.getLastMessageId(conversationId, signal);
     }
@@ -1332,7 +1369,7 @@ async function handleChatInner(req, res, body, start, ctxEntry) {
     // chain prompt + assembled prompt + every file part (attachments, optical
     // pages, context tail) — usage must reflect the whole black box, not just
     // the output.
-    const inputLedger = { tokens: 0 };
+    const inputLedger = { tokens: Number(ctxEntry?.contextTokens) || 0 };
     let chainCitations = [];
     let chainReasoning = '';
     if (sakanaReq.route?.chainSearch && !sakanaReq.isToolTurn && !sakanaReq.isContinue) {
@@ -1415,6 +1452,9 @@ async function handleChatInner(req, res, body, start, ctxEntry) {
         usage: { prompt_tokens: inputLedger.tokens, completion_tokens: estimateTokens((text || '') + (reasoning || '')), total_tokens: inputLedger.tokens + estimateTokens((text || '') + (reasoning || '')) },
       };
       const mergedCitations = mergeCitations(chainCitations, t.citations);
+      als.getStore().contextTokens = response.usage.total_tokens;
+      res.setHeader('x-conversation-id', conversationId || '');
+      res.setHeader('x-usage-estimated', 'true');
       if (mergedCitations.length) {
         response.citations = mergedCitations;
         // OpenAI-style annotations projection for clients that read sources
@@ -1430,6 +1470,7 @@ async function handleChatInner(req, res, body, start, ctxEntry) {
 
     // streaming
     res.setHeader('x-conversation-id', conversationId || '');
+    res.setHeader('x-usage-estimated', 'true');
     sseHeaders(res);
     let t = new NdjsonTranslator({ declaredTools: sakanaReq.clientToolNames, promptTokens: inputLedger.tokens });
     let streamedChars = 0;
@@ -1477,6 +1518,8 @@ async function handleChatInner(req, res, body, start, ctxEntry) {
       }
       if (!streamError) {
         t.citations = mergeCitations(chainCitations, t.citations);
+        als.getStore().contextTokens = inputLedger.tokens + t._tokCount.tokens;
+        await finalizeContext(body, normalized, conversationId, lastMessageId, req, contextSnapshot, signal);
         for (const c of t.finish()) {
           const chunkData = { ...base, choices: c.choices };
           if (c.citations && c.citations.length) {
@@ -1506,9 +1549,7 @@ async function handleChatInner(req, res, body, start, ctxEntry) {
     } catch {}
     const ok = !streamError;
     stats.finish({ stream: true, ok, model: modelName, promptChars, completionChars: streamedChars, keyId: req.keyId });
-    if (!signal?.aborted) {
-      await finalizeContext(body, normalized, conversationId, lastMessageId, req, contextSnapshot, signal);
-    }
+    if (streamError) contextStore.clearConversation(conversationId, req);
     auditEntry(req, body, signal?.aborted ? 499 : 200, null, streamError ? { code: streamErrCode } : null, Date.now() - start, { stream: true });
     return { streamError: streamError || '', streamErrorCode: streamErrCode || '' };
   } catch (e) {
@@ -1629,7 +1670,7 @@ async function handleAnthropicMessages(req, res) {
   }
   const chatBody = anthropicToChat(body);
   // 与 chat 端点同源的扩展字段(rp / character card / 会话续传)
-  for (const k of ['rp_preset', 'rpPreset', 'rp_nsfw', 'rpNsfw', 'rp_length', 'rpLength', 'character_id', 'message_id', 'conversation_id']) {
+  for (const k of ['rp_preset', 'rpPreset', 'rp_nsfw', 'rpNsfw', 'rp_length', 'rpLength', 'character_id', 'message_id', 'conversation_id', 'chat_id', 'thread_id', 'history_mode', 'historyMode', 'context_format', 'contextFormat', 'search_chain']) {
     if (body[k] !== undefined) chatBody[k] = body[k];
   }
   const stream = body.stream === true;
@@ -1677,339 +1718,8 @@ async function handleAnthropicMessages(req, res) {
  * promptTokens, completionTokens } or an AsyncGenerator of SSE chunks when stream.
  */
 async function makeChatResponse(chatBody) {
-  const signal = chatBody.__requestSignal || als.getStore()?.signal;
-  const request = chatBody.__request || als.getStore()?.request || { method: 'POST', url: '/v1/responses', headers: {} };
-  const requestHeaders = request.headers || {};
-  let normalized = chatBody.__normalizedRequest || await normalizeRequestBody(chatBody, { signal });
-  let contextSnapshot = chatBody.__contextSnapshot || makeContextSnapshot(normalized);
-  const explicitContextId = chatBody.conversation_id || chatBody.chat_id || chatBody.thread_id || '';
-  const ctxCandidate = lookupContext(request, chatBody);
-  const contextMatches = !explicitContextId
-    ? !!ctxCandidate
-    : !!ctxCandidate && (
-      ctxCandidate.conversationId === explicitContextId ||
-      (ctxCandidate.clientConversationIds || []).includes(explicitContextId)
-    );
-
-  // Decide whether this is a genuinely new conversation before injecting a
-  // character card. An explicit delta turn has no assistant message of its own
-  // but must not receive the card's first_mes a second time.
-  const charId = chatBody.character_id || '';
-  const card = charId ? loadCard(CARD_DIR, charId) : activeCharacter;
-  if (card && card.name && Array.isArray(chatBody.messages)) {
-    try {
-      chatBody.messages = injectCharacterCard(
-        chatBody.messages,
-        card,
-        !contextMatches,
-      );
-    } catch (e) { console.log(`[character-card] inject error (makeChatResponse): ${stableErrorCode(e, 500)}`); }
-    try {
-      normalized = await normalizeRequestBody(chatBody, { signal });
-    } catch (err) {
-      if (err instanceof AttachmentError) throw err;
-      throw err;
-    }
-    contextSnapshot = makeContextSnapshot(normalized);
-  }
-
-  const contextDecision = decideContext({
-    explicitId: explicitContextId,
-    stored: ctxCandidate,
-    client: contextSnapshot,
-    historyMode: chatBody.history_mode || chatBody.historyMode || '',
-    rebuildAttempted: !!chatBody.__contextRebuildAttempted,
-  });
-  let ctxEntry = contextDecision.action === 'fork' || contextDecision.action === 'rebuild' ? null : ctxCandidate;
-  if (contextDecision.action === 'fork' || contextDecision.action === 'rebuild') clearContextForAccountRetry(chatBody);
-  if (contextDecision.reason === 'CONTEXT-REBUILD-FAILED') {
-    throw Object.assign(new Error('conversation context could not be rebuilt'), { errorCode: contextDecision.reason, status: 409 });
-  }
-  Object.defineProperty(chatBody, '__contextSnapshot', { value: contextSnapshot, enumerable: false, configurable: true, writable: true });
-  Object.defineProperty(chatBody, '__normalizedRequest', { value: normalized, enumerable: false, configurable: true, writable: true });
-  Object.defineProperty(chatBody, '__forceNewContext', { value: !!chatBody.__forceNewContext || contextDecision.action === 'fork' || contextDecision.action === 'rebuild', enumerable: false, configurable: true, writable: true });
-  Object.defineProperty(chatBody, '__ignoreExplicitContext', { value: !!chatBody.__ignoreExplicitContext || contextDecision.action === 'rebuild', enumerable: false, configurable: true, writable: true });
-
-  const model = chatBody.model || 'sakana';
-  assertStandardModel(model);
-  await concurrencyManager.acquire(AUTO_SESSION ? accountPool : null, { signal });
-  let slotTransferred = false;
-  const excludedAccounts = new Set();
-  try {
-    for (let attempt = 0; ; attempt++) {
-      let lease = null;
-      let activeCtxEntry = ctxEntry;
-      if (AUTO_SESSION && activeCtxEntry?.accountId && !excludedAccounts.has(activeCtxEntry.accountId)) {
-        lease = accountPool.lease(model, { accountId: activeCtxEntry.accountId, owner: chatBody.__requestId || '' });
-        if (!lease) {
-          excludedAccounts.add(activeCtxEntry.accountId);
-          activeCtxEntry = null;
-          ctxEntry = null;
-          clearContextForAccountRetry(chatBody);
-        }
-      }
-      if (AUTO_SESSION && !lease) lease = accountPool.lease(model, { excludeIds: [...excludedAccounts], owner: chatBody.__requestId || '' });
-      const bound = lease ? lease.account : await getSession().catch(() => null);
-      if (!bound) {
-        throw Object.assign(new Error('no active Sakana account'), { errorCode: 'AUTH-LOGIN-001', status: 503 });
-      }
-
-      try {
-        const requestStore = { session: bound, lease, ctxEntry: activeCtxEntry, signal, request: chatBody.__request || null };
-        const result = await als.run(requestStore, () => makeChatResponseInner(chatBody));
-        if (result && typeof result[Symbol.asyncIterator] === 'function') {
-          slotTransferred = true;
-          return (async function* () {
-            let ok = true;
-            let streamError = null;
-            try {
-              for (;;) {
-                const step = await als.run(requestStore, () => result.next());
-                if (step.done) break;
-                const err = step.value?.data?.error;
-                if (err) {
-                  ok = false;
-                  streamError = err;
-                }
-                yield step.value;
-              }
-            } catch (err) {
-              ok = false;
-              const safe = sanitizeError(err, err?.status || 500);
-              streamError = { code: safe.code, message: safe.message };
-              throw err;
-            } finally {
-              try { await als.run(requestStore, () => result.return?.()); } catch {}
-              if (!ok && streamError?.code) markCurrentSession({ errorCode: streamError.code, message: streamError.message }, lease);
-              if (lease) accountPool.releaseLease(lease, ok, { error: streamError?.message || '' });
-              concurrencyManager.release();
-            }
-          })();
-        }
-        const ok = !result?.error;
-        if (lease) accountPool.releaseLease(lease, ok, { error: result?.error || '' });
-        return result;
-      } catch (err) {
-        if (lease) accountPool.releaseLease(lease, false, { error: stableErrorCode(err, err?.status || 500) });
-        const code = String(err?.errorCode || err?.code || '');
-        const modelQuota = code.startsWith('RATE-MODEL');
-        const retryable = isRetryableAccountError(err);
-        if (retryable && !modelQuota && lease) markCurrentSession(err, lease);
-        if (retryable && attempt < (modelQuota ? 2 : 1)) {
-          if (lease?.accountId) excludedAccounts.add(lease.accountId);
-          activeCtxEntry = null;
-          ctxEntry = null;
-          clearContextForAccountRetry(chatBody);
-          console.log('[makeChatResponse] retrying with fresh account (' + (code || stableErrorCode(err, 500)) + ')');
-          continue;
-        }
-        throw err;
-      }
-    }
-  } finally {
-    if (!slotTransferred) concurrencyManager.release();
-  }
-}
-
-async function makeChatResponseInner(chatBody) {
-  const start = Date.now();
-  const body = { ...chatBody };
-  for (const key of ['__forceNewContext', '__ignoreExplicitContext', '__contextRebuildAttempted', '__contextSnapshot', '__normalizedRequest']) {
-    if (chatBody[key] !== undefined) body[key] = chatBody[key];
-  }
-
-  // auto-stream: for legacy/responses we must decide immediately, so force non-stream here
-  // unless the caller wants raw SSE (handled below).
-  const signal = chatBody.__requestSignal || als.getStore()?.signal;
-  const request = chatBody.__request || als.getStore()?.request || { method: 'POST', url: '/v1/responses', headers: {} };
-  const normalized = chatBody.__normalizedRequest || await normalizeRequestBody(chatBody, { signal });
-  const contextSnapshot = chatBody.__contextSnapshot || makeContextSnapshot(normalized);
-  const ctxEntry = als.getStore()?.ctxEntry || null;
-  const assembled = buildNormalizedSakanaRequest(body, normalized, ctxEntry);
-  const sakanaReq = assembled.sakanaReq;
-  const normalizedPrompt = assembled.normalizedPrompt;
-  const effectiveNormalized = assembled.normalized;
-  sakanaReq.messageFingerprint = effectiveNormalized.fingerprint || normalized.fingerprint;
-  sakanaReq.contextSnapshot = contextSnapshot;
-  injectRpRules(sakanaReq, request, body);
-  const modelName = body.model || 'sakana';
-  const streaming = body.stream === true ? true : false;
-  stats.begin(modelName);
-  let promptChars = (sakanaReq.prompt || '').length + (sakanaReq.files || []).length * 200;
-  if (process.env.DEBUG_PROMPT) {
-    console.log('[prompt-metrics:' + modelName + ']', JSON.stringify({ promptChars, fileCount: sakanaReq.files?.length || 0 }));
-  }
-
-  // Extract text-based files
-  if (sakanaReq.files && sakanaReq.files.length > 0) {
-    const textParts = [];
-    const remaining = [];
-      for (const f of sakanaReq.files) {
-        if (f.synthetic && /^context_document\.(txt|json)$/.test(f.name)) {
-          remaining.push(f);
-          continue;
-        }
-        const ext = extractFileContent(f);
-      if (ext === null) { remaining.push(f); }
-      else if (ext.text) { textParts.push(ext.text); }
-    }
-    sakanaReq.files = remaining;
-    if (textParts.length) {
-      sakanaReq.prompt = (sakanaReq.prompt || '') + '\n\n--- 文件内容 ---\n' + textParts.join('\n');
-    }
-  }
-
-  const cacheable = CACHE_ENABLED && !sakanaReq.isToolTurn && !(sakanaReq.tools && sakanaReq.tools.length) && !(sakanaReq.files && sakanaReq.files.some((f) => f && f.output));
-  const cacheKey = cacheable ? cache.key(body, { semanticFingerprint: sakanaReq.messageFingerprint, normalized: sakanaReq.normalizedMessages }) : null;
-  if (cacheKey && !streaming) {
-    const cached = cache.get(cacheKey);
-    if (cached) {
-      stats.finish({ stream: false, ok: true, model: modelName, promptChars, completionChars: (cached.text || '').length, keyId: null });
-      return { content: cached.choices?.[0]?.message?.content || '', reasoning: cached.choices?.[0]?.message?.reasoning_content || '', conversationId: cached.conversation_id, promptTokens: estimateRequestTokens(sakanaReq).total, completionTokens: 0 };
-    }
-  }
-
-  let conversationId = sakanaReq.conversationId;
-  let lastMessageId = ctxEntry?.lastMessageId || '';
-
-  // Auto-context lookup — same first-user-message key as saveContext.
-  if (!conversationId && !body.__forceNewContext && !body.__ignoreExplicitContext) {
-    const found = (als.getStore() && als.getStore().ctxEntry) || (firstUserText(body) ? lookupContext(firstUserText(body)) : null);
-    if (found) {
-      conversationId = found.conversationId;
-      lastMessageId = found.lastMessageId || '';
-      if (!lastMessageId) {
-        try { lastMessageId = await upstream.getLastMessageId(conversationId, signal); } catch { conversationId = null; }
-      }
-    }
-  }
-
-  if (!conversationId) {
-    const boot = await upstream.createConversation({
-      toneMode: sakanaReq.toneMode,
-      enableThinking: sakanaReq.enableThinking,
-      webSearchEnabled: sakanaReq.webSearchEnabled,
-      model: sakanaReq.sakanaModel,
-        signal,
-      });
-    conversationId = boot.conversationId;
-    stats.convCreated();
-    lastMessageId = boot.systemMessageId;
-  } else if (!lastMessageId) {
-    lastMessageId = await upstream.getLastMessageId(conversationId, signal);
-  }
-
-  // Smart routing round 1 (code/writer profiles) — same as the chat path.
-  // Full input accounting mirrors the chat path: chain + prompt + all file
-  // parts, so Anthropic-style usage reflects the entire upstream context.
-  const inputLedger = { tokens: 0 };
-  let chainCitations = [];
-  if (sakanaReq.route?.chainSearch && !sakanaReq.isToolTurn && !sakanaReq.isContinue) {
-    try {
-      const chain = await runSearchChainRound(conversationId, sakanaReq, { lastMessageId, signal, ledger: inputLedger });
-      if (chain.note) {
-        sakanaReq.prompt = chain.note + '\n\n' + sakanaReq.prompt;
-        chainCitations = chain.citations;
-        try { lastMessageId = await upstream.getLastMessageId(conversationId, signal); } catch {}
-      }
-    } catch (e) {
-      console.log(`[search-chain] round-1 failed, falling back to single round: ${stableErrorCode(e, 500)}`);
-    }
-  }
-
-  // Optical second-stage compression (writer profile, very long docs).
-  try {
-    await maybeApplyOpticalCompression(sakanaReq, signal);
-  } catch (e) {
-    console.log(`[optical] render failed, keeping single-document pipeline: ${stableErrorCode(e, 500)}`);
-  }
-
-  inputLedger.tokens += estimateRequestTokens(sakanaReq).total;
-  const upResp = await upstream.streamGenerate(conversationId, sakanaReq, { lastMessageId, signal });
-  let t = new NdjsonTranslator({ declaredTools: sakanaReq.clientToolNames, promptTokens: inputLedger.tokens });
-
-  if (streaming) {
-    // Return SSE chunk generator, mirroring chat path but as async iterable.
-    const base = { id: t.assistantMessageId, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model: modelName };
-    return (async function* () {
-      let streamError = null;
-      let streamErrCode = null;
-      try {
-        for await (const ev of drainRoundToSSE(upResp, t, base, signal)) yield ev;
-        // Native tool round with no text: continue transparently.
-        let rounds = 0;
-        while (!t.sentContent && !t.clientToolRound && rounds < toolRoundsFor(sakanaReq)) {
-          rounds++;
-          const contT = new NdjsonTranslator({ declaredTools: sakanaReq.clientToolNames, promptTokens: inputLedger.tokens });
-          const leaf = await upstream.getLastMessageId(conversationId, signal);
-          lastMessageId = leaf;
-          const contReq = { ...sakanaReq, isContinue: true, prompt: undefined, files: [] };
-          const contResp = await upstream.streamGenerate(conversationId, contReq, { lastMessageId: leaf, signal });
-          for await (const ev of drainRoundToSSE(contResp, contT, base, signal)) yield ev;
-          if (!contT.sentContent) { t.nativeToolRound = contT.nativeToolRound; continue; }
-          contT.citations = mergeCitations(t.citations, contT.citations);
-          t = contT;
-        }
-        if (!t.sentContent) {
-          streamError = 'empty response';
-          const fb = { ...base, choices: [{ index: 0, delta: {}, finish_reason: 'error' }], error: { message: 'empty upstream response', code: 'EMPTY-RESPONSE' } };
-          yield { event: 'chat.completion.chunk', data: fb };
-        }
-        t.citations = mergeCitations(chainCitations, t.citations);
-        for (const c of t.finish()) {
-          const data = { ...base, choices: c.choices };
-          if (c.usage) data.usage = c.usage;
-          if (c.citations && c.citations.length) data.citations = c.citations;
-          yield { event: 'chat.completion.chunk', data };
-        }
-      } catch (e) {
-        const safe = sanitizeError(e, 500);
-      streamError = safe.message;
-      streamErrCode = safe.code;
-      const fb = { ...base, choices: [{ index: 0, delta: {}, finish_reason: 'error' }], error: { message: streamError, code: streamErrCode } };
-        yield { event: 'chat.completion.chunk', data: fb };
-      }
-      stats.finish({ stream: true, ok: !streamError, model: modelName, promptChars, completionChars: 0, keyId: null });
-      const finalLeaf = await finalizeContext(body, normalized, conversationId, lastMessageId, request, contextSnapshot, signal);
-      auditEntry(request, body, streamError ? 500 : 200, null, streamError, Date.now() - start, { stream: true });
-    })();
-  }
-
-  // non-stream: accumulate
-  const first = await drainUpstreamRound(upResp, new NdjsonTranslator({ declaredTools: sakanaReq.clientToolNames, promptTokens: inputLedger.tokens }), undefined, signal);
-  let text = first.content;
-  let reasoning = first.reasoning;
-  let finalT = first.t;
-  // Transparent native-tool continuation (same rule as chat path).
-  let rounds = 0;
-  while (!text && !finalT.clientToolRound && rounds < toolRoundsFor(sakanaReq)) {
-    rounds++;
-    try {
-      const cont = await continueNativeToolRound(conversationId, sakanaReq, signal);
-      text += cont.content;
-      reasoning += cont.reasoning;
-          finalT = cont.t;
-          lastMessageId = cont.leaf || lastMessageId;
-    } catch (e) { console.log(`[tool-continue] (responses) continue round failed: ${stableErrorCode(e, 500)}`); break; }
-  }
-  text = stripChips(text).trim();
-  // Empty upstream output even after continuation: return an error instead
-  // of 200 OK with no content (user reported "no reply with no error").
-  if (!text) {
-    stats.finish({ stream: false, ok: false, error: 'empty upstream response', model: modelName, promptChars, completionChars: 0, keyId: null });
-      const finalLeaf = await finalizeContext(body, normalized, conversationId, lastMessageId, request, contextSnapshot, signal);
-      auditEntry(request, body, 200, null, { code: 'EMPTY-RESPONSE' }, Date.now() - start, { stream: false });
-    return { content: '', reasoning, conversationId, promptTokens: 0, completionTokens: 0, error: 'empty upstream response' };
-  }
-  const promptTokens = Math.round(promptChars / 4);
-  const completionTokens = Math.round((text.length + reasoning.length) / 4);
-  stats.finish({ stream: false, ok: true, model: modelName, promptChars, completionChars: text.length, keyId: null });
-  const finalLeaf = await finalizeContext(body, normalized, conversationId, lastMessageId, request, contextSnapshot, signal);
-  auditEntry(request, body, 200, null, null, Date.now() - start, { stream: false });
-  // 客户端工具调用(JSON 提取,原生沙盒调用已被抑制)随聚合返回,供
-  // Anthropic 端点组装 tool_use 块
-  const toolCalls = first.toolCalls;
-  return { content: text, reasoning, conversationId, promptTokens, completionTokens, toolCalls, finishReason: toolCalls.length && !text ? 'tool_calls' : 'stop' };
+  const request = chatBody.__request || als.getStore()?.request || { method: 'POST', url: '/v1/responses', headers: {}, __signal: chatBody.__requestSignal };
+  return chatResponse(chatBody, request, handleChatBody);
 }
 
 const server = http.createServer(async (req, res) => {
@@ -2083,31 +1793,39 @@ const server = http.createServer(async (req, res) => {
       if (groute) return await handleGeminiGenerate(req, res, groute, url);
     }
     if (req.method === 'GET' && p === '/v1/conversations') {
-      let lease = null;
-      let ok = false;
-      try {
-        const session = AUTO_SESSION
-          ? (lease = accountPool.lease('', { owner: 'conversation-list' }))?.account
-          : await getSession().catch(() => null);
-        if (!session) return sendJson(res, 503, { error: { message: 'conversation account unavailable', type: 'upstream_error', code: 'AUTH-LOGIN-001' } });
-        const list = await als.run({ session, lease, ctxEntry: null, signal: req.__signal, request: req }, () =>
-          upstream.listConversations(url.searchParams.get('p') || 0, req.__signal)
-        );
-        ok = true;
-        return sendJson(res, 200, list);
-      } catch (e) {
-        const safe = sanitizeError(e, 500);
-        return sendJson(res, clientErrorStatus(e, 500), { error: { message: safe.message, type: safe.category, code: safe.code } });
-      } finally {
-        if (lease) accountPool.releaseLease(lease, ok, { error: ok ? '' : 'conversation list failed' });
+      const linked = contextStore.list(req);
+      if (isAdmin(req)) {
+        let lease = null;
+        let ok = false;
+        try {
+          const session = AUTO_SESSION
+            ? (lease = accountPool.lease('', { owner: 'conversation-list' }))?.account
+            : await getSession().catch(() => null);
+          if (!session) return sendJson(res, 503, { error: { message: 'conversation account unavailable', type: 'upstream_error', code: 'AUTH-LOGIN-001' } });
+          const list = await als.run({ session, lease, ctxEntry: null, signal: req.__signal, request: req }, () =>
+            upstream.listConversations(url.searchParams.get('p') || 0, req.__signal));
+          ok = true;
+          return sendJson(res, 200, list);
+        } catch (e) {
+          const safe = sanitizeError(e, 500);
+          return sendJson(res, clientErrorStatus(e, 500), { error: { message: safe.message, type: safe.category, code: safe.code } });
+        } finally {
+          if (lease) accountPool.releaseLease(lease, ok, { error: ok ? '' : 'conversation list failed' });
+        }
       }
+      return sendJson(res, 200, { conversations: linked.map((entry) => ({
+        conversationId: entry.conversationId,
+        model: entry.model || '',
+        updatedAt: entry.updatedAt,
+      })) });
     }
     if (req.method === 'GET' && p.startsWith('/v1/conversations/') && p.endsWith('/messages')) {
       const id = decodeURIComponent(p.slice('/v1/conversations/'.length, -'/messages'.length));
       let lease = null;
       let ok = false;
       try {
-        const ctxEntry = contextStore.getByConversationId(id);
+        const ctxEntry = contextStore.getByConversationId(id, req);
+        if (!ctxEntry) return sendJson(res, 404, { error: { message: 'conversation not found', type: 'not_found' } });
         let session;
         if (AUTO_SESSION) {
           if (!ctxEntry?.accountId) {
@@ -2138,15 +1856,13 @@ const server = http.createServer(async (req, res) => {
       let ok = false;
       let stopError = null;
       try {
-        const ctxEntry = contextStore.getByConversationId(id);
+        const ctxEntry = contextStore.getByConversationId(id, req);
+        if (!ctxEntry) return sendJson(res, 404, { error: { message: 'conversation not found', type: 'not_found' } });
         let session;
         if (AUTO_SESSION) {
-          if (!ctxEntry?.accountId) {
-            return sendJson(res, 404, { error: { message: 'conversation account unavailable', type: 'not_found', code: 'CONTEXT-AFFINITY-MISSING' } });
-          }
           const acct = accountPool.get(ctxEntry.accountId);
-          lease = acct ? accountPool.leaseAccount(acct.id, '', { owner: 'stop:' + id }) : null;
-          session = lease?.account || null;
+          if (!acct) return sendJson(res, 404, { error: { message: 'conversation account unavailable', type: 'not_found' } });
+          session = acct;
         } else {
           session = await getSession().catch(() => null);
         }
@@ -2200,7 +1916,7 @@ const server = http.createServer(async (req, res) => {
         compact: { ...contextTelemetry },
         browser: autoSession.status(),
         node: process.version,
-        authMode: (API_KEY || keyStore.keys.some(k => !k.revoked)) ? 'keyed' : 'open',
+        authMode: (API_KEY || ADMIN_API_KEY || keyStore.keys.length) ? 'keyed' : 'open',
       };
       return sendJson(res, 200, s);
     }
@@ -2208,7 +1924,7 @@ const server = http.createServer(async (req, res) => {
       if (!isAdmin(req)) return sendJson(res, 403, { error: { message: 'admin key required', type: 'forbidden' } });
       if (req.method === 'GET') {
         const active = keyStore.keys.filter((k) => !k.revoked).length;
-        return sendJson(res, 200, { keys: keyStore.list(), keyed: active > 0, open: !API_KEY && active === 0 });
+        return sendJson(res, 200, { keys: keyStore.list(), keyed: !!(API_KEY || ADMIN_API_KEY || active), open: !API_KEY && !ADMIN_API_KEY && keyStore.keys.length === 0 });
       }
       if (req.method === 'POST') {
         let b;
@@ -2421,13 +2137,15 @@ const server = http.createServer(async (req, res) => {
         }
         let verified = false;
         if (provider === 'yyds' && next.apiKey) {
+          let result;
           try {
-            const r = await fetch(next.apiBase + '/me', {
+            result = await fetchRemoteJson(new URL('/me', next.apiBase).href, {
               headers: { 'X-API-Key': next.apiKey },
-              signal: AbortSignal.timeout(15000),
+              signal: req.__signal,
+              maxBytes: 256 * 1024,
             });
-            verified = r.ok;
           } catch {}
+          verified = !!result?.ok;
         }
         mailConfig.saveMailConfig(next);
         console.log(`[mail-config] provider=${provider} domain=${next.domain || '(rotate)'} verified=${verified}`);
@@ -2443,14 +2161,13 @@ const server = http.createServer(async (req, res) => {
       try {
         const apiBase = process.env.YYDS_API_BASE || 'https://maliapi.215.im/v1';
         if (!isPublicHttpUrl(apiBase)) return sendJson(res, 400, { error: { message: 'YYDS_API_BASE must be a public http(s) URL' } });
-        const r = await fetch(apiBase + '/me', {
+        const result = await fetchRemoteJson(new URL('/me', apiBase).href, {
           headers: { 'X-API-Key': process.env.YYDS_API_KEY },
-          signal: AbortSignal.timeout(15000),
+          signal: AbortSignal.any([req.__signal, AbortSignal.timeout(15000)].filter(Boolean)),
+          maxBytes: 256 * 1024,
         });
-        if (!r.ok) return sendJson(res, 200, { ok: false, message: `上游返回 HTTP ${r.status}` });
-        const me = await r.json().catch(() => ({}));
-        const user = me?.data?.username || me?.username || 'ok';
-        return sendJson(res, 200, { ok: true, detail: `YYDS 连接正常 (${user})` });
+        if (!result.ok) return sendJson(res, 200, { ok: false, message: `上游返回 HTTP ${result.status}` });
+        return sendJson(res, 200, { ok: true, detail: 'YYDS connection healthy' });
       } catch (e) {
         return sendJson(res, 200, { ok: false, message: 'network error' });
       }
@@ -2508,13 +2225,19 @@ const server = http.createServer(async (req, res) => {
       const code = abortCode(req.__signal.reason, 'REQUEST-ABORTED');
       const status = code === 'SERVER-SHUTDOWN' ? 503 : (code === 'REQUEST-TIMEOUT' ? 504 : 499);
       const safe = sanitizeError({ code }, status);
-      sendJson(res, status, { error: { message: safe.message, type: safe.category, code: safe.code } });
+      const errorType = safe.code === 'RP-MODEL-DISABLED' || safe.category === 'client'
+        ? 'invalid_request_error'
+        : 'upstream_error';
+      sendJson(res, status, { error: { message: safe.message, type: errorType, code: safe.code } });
     } else if (runtimeClosed) {
       sendJson(res, 503, { error: { message: 'server is shutting down', type: 'shutdown', code: 'SERVER-SHUTDOWN' } });
     } else {
       const safe = sanitizeError(e, e?.status || 500);
       const status = clientErrorStatus(e, e?.status || 500);
-      sendJson(res, status, { error: { message: safe.message, type: safe.category, code: safe.code } });
+      const errorType = safe.code === 'RP-MODEL-DISABLED' || safe.category === 'client'
+        ? 'invalid_request_error'
+        : 'upstream_error';
+      sendJson(res, status, { error: { message: safe.message, type: errorType, code: safe.code } });
     }
   } finally {
     finalizeAuditEntry(req, res);

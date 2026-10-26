@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sakana 2API · Console</title>
+<script>
+// Resolve the saved preference before first paint; the root attribute owns theme state.
+(() => {
+  let theme = 'light';
+  try { if (localStorage.getItem('sakana_theme') === 'dark') theme = 'dark'; } catch {}
+  document.documentElement.dataset.theme = theme;
+})();
+</script>
 <style>
 /* ============================================================
    Sakana 2API — Claude 风格设计系统 (2026-10 全量重构)
@@ -17,27 +25,36 @@
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
 }
-body.theme-light {
+:root, :root[data-theme="light"] {
+  color-scheme: light;
   --bg: #FAF9F5; --bg-raise: #F0EEE6; --card: #FFFFFF; --card-soft: #F5F4EF;
-  --ink: #1F1E1D; --text-main: #262523; --text-dim: #6E6A61; --text-muted: #8A867C;
+  --ink: #1F1E1D; --text-main: #262523; --text-dim: #6E6A61; --text-muted: #716D64;
   --border-subtle: #E8E4D9; --line: #E2DED2;
   --accent: #D97757; --accent-strong: #C15F3C; --accent-soft: #F7E8E0; --accent-ink: #9C4A2F;
-  --ok: #7A9B76; --ok-soft: #EAF0E7; --warn: #C29B4A; --danger: #B85C4C; --danger-soft: #F7E9E5;
-  --info: #6A8BA4; --info-soft: #E9EFF4; --blue: #5E7C99; --cyan: #5B8E8A;
+  --button-bg: #AD5134; --button-hover: #98462E; --on-accent: #FFF8F2;
+  --ok: #557551; --ok-soft: #EAF0E7; --warn: #967026; --danger: #B05243; --danger-soft: #F7E9E5;
+  --info: #496B85; --info-soft: #E9EFF4; --blue: #5E7C99; --cyan: #426F6B; --cyan-soft: #E5F0EF;
+  --chart-grid: #E2DED2; --chart-label: #6E6A61; --chart-line: #C15F3C;
+  --chart-fill-start: rgba(193,95,60,.24); --chart-fill-end: rgba(193,95,60,.03);
   --shadow-sm: 0 1px 2px rgba(31,30,29,.05); --shadow-md: 0 4px 16px rgba(31,30,29,.08);
   --shadow-lg: 0 12px 40px rgba(31,30,29,.16);
 }
-body.theme-dark {
+:root[data-theme="dark"] {
+  color-scheme: dark;
   --bg: #1B1A18; --bg-raise: #141311; --card: #242320; --card-soft: #2B2A26;
-  --ink: #F5F2E9; --text-main: #EDE9DD; --text-dim: #A8A397; --text-muted: #7E7A6F;
+  --ink: #F5F2E9; --text-main: #EDE9DD; --text-dim: #B9B3A7; --text-muted: #A39D90;
   --border-subtle: #38352F; --line: #403D36;
   --accent: #E0825F; --accent-strong: #E88F6F; --accent-soft: #3A2B23; --accent-ink: #F0B49B;
+  --button-bg: #E0825F; --button-hover: #E88F6F; --on-accent: #211B16;
   --ok: #8FB18A; --ok-soft: #252E23; --warn: #D2AC62; --danger: #D97E6C; --danger-soft: #39241F;
-  --info: #86A7BE; --info-soft: #22303B; --blue: #7FA0C0; --cyan: #7FB0AB;
+  --info: #86A7BE; --info-soft: #22303B; --blue: #7FA0C0; --cyan: #7FB0AB; --cyan-soft: #22302E;
+  --chart-grid: #403D36; --chart-label: #B9B3A7; --chart-line: #E88F6F;
+  --chart-fill-start: rgba(232,143,111,.28); --chart-fill-end: rgba(232,143,111,.04);
   --shadow-sm: 0 1px 2px rgba(0,0,0,.3); --shadow-md: 0 4px 16px rgba(0,0,0,.35);
   --shadow-lg: 0 12px 40px rgba(0,0,0,.5);
 }
 html, body { height: 100%; }
+html { background: var(--bg); scrollbar-color: var(--line) var(--bg); }
 body {
   font-family: var(--font-sans); background: var(--bg); color: var(--text-main);
   font-size: 13.5px; line-height: 1.65; -webkit-font-smoothing: antialiased;
@@ -52,11 +69,21 @@ code { font-family: var(--font-mono); font-size: .92em; background: var(--bg-rai
 .btn {
   font: inherit; font-size: 12.5px; font-weight: 600; color: var(--text-main);
   background: var(--card); border: 1px solid var(--border-subtle); border-radius: 999px;
-  padding: 7px 16px; cursor: pointer; transition: all .15s ease; white-space: nowrap;
+  padding: 7px 16px; cursor: pointer; transition: background-color .15s, border-color .15s, color .15s, box-shadow .15s; white-space: nowrap;
 }
 .btn:hover { border-color: var(--accent); color: var(--accent-strong); box-shadow: var(--shadow-sm); }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: #FFF8F2; }
-.btn.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); color: #FFF; }
+.btn.primary { background: var(--button-bg); border-color: var(--button-bg); color: var(--on-accent); }
+.btn.primary:hover { background: var(--button-hover); border-color: var(--button-hover); color: var(--on-accent); }
+:where(button, a, input, select, textarea, [tabindex]):focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 3px; }
+.theme-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 38px; }
+.theme-toggle[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); }
+.theme-icon { font-size: 17px; line-height: 1; }
+.theme-icon::before { content: '◐'; }
+:root[data-theme="dark"] .theme-icon::before { content: '◑'; }
+.sidebar-theme { width: 100%; margin-bottom: 14px; }
+.drawer-close { display: none; }
+.drawer-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+body.drawer-visible { overflow: hidden; }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--text-dim); }
 .btn.ghost:hover { background: var(--bg-raise); border-color: transparent; color: var(--text-main); box-shadow: none; }
 .btn.danger { color: var(--danger); }
@@ -77,7 +104,7 @@ select.chat-select option { color: var(--text-main); background: var(--card); }
 .btn-group { display: inline-flex; background: var(--bg-raise); border-radius: 999px; padding: 3px; gap: 2px; }
 .btn-group-btn {
   font: inherit; font-size: 11px; font-weight: 600; color: var(--text-dim); border: none; background: transparent;
-  border-radius: 999px; padding: 4px 12px; cursor: pointer; transition: all .15s;
+  border-radius: 999px; padding: 4px 12px; cursor: pointer; transition: background-color .15s, border-color .15s, color .15s, box-shadow .15s;
 }
 .btn-group-btn.active { background: var(--card); color: var(--ink); box-shadow: var(--shadow-sm); }
 
@@ -112,7 +139,7 @@ select.chat-select option { color: var(--text-main); background: var(--card); }
   display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
   font: inherit; font-size: 13px; font-weight: 500; color: var(--text-dim);
   background: transparent; border: none; border-radius: 10px; padding: 8px 10px; cursor: pointer;
-  transition: all .15s; position: relative;
+  transition: background-color .15s, border-color .15s, color .15s, box-shadow .15s; position: relative;
 }
 .nav-btn:hover { background: var(--card-soft); color: var(--text-main); }
 .nav-btn.active { background: var(--card); color: var(--ink); font-weight: 600; box-shadow: var(--shadow-sm); }
@@ -149,7 +176,11 @@ select.chat-select option { color: var(--text-main); background: var(--card); }
   background: var(--accent-soft); border-radius: 999px; padding: 3px 10px; white-space: nowrap;
 }
 
-.main { margin-left: 236px; min-height: 100vh; display: flex; flex-direction: column; }
+.main { margin-left: 236px; min-height: 100vh; display: flex; flex-direction: column; min-width: 0; }
+@media (min-width: 861px) {
+  .sidebar.collapsed { transform: translateX(-100%); }
+  .sidebar.collapsed ~ .main { margin-left: 0; }
+}
 .topbar {
   position: sticky; top: 0; z-index: 40; display: flex; align-items: center; gap: 14px;
   padding: 16px 32px; background: color-mix(in srgb, var(--bg) 85%, transparent);
@@ -159,8 +190,11 @@ select.chat-select option { color: var(--text-main); background: var(--card); }
 .topbar-left { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
 .topbar-title { font-family: var(--font-serif); font-size: 21px; font-weight: 700; color: var(--ink); white-space: nowrap; }
 .topbar-subtitle { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
-.content-viewport { flex: 1; padding: 26px 32px 60px; max-width: 1280px; width: 100%; margin: 0 auto; }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.topbar-actions { display: flex; align-items: center; gap: 10px; }
+.content-viewport { flex: 1; padding: 26px 32px 60px; max-width: 1280px; width: 100%; min-width: 0; margin: 0 auto; }
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 16px; }
+.settings-grid > * { min-width: 0; }
 
 /* ---- cards & generic -------------------------------------- */
 .card-panel {
@@ -184,8 +218,7 @@ tr:hover td { background: var(--card-soft); }
   background: var(--bg-raise); color: var(--text-dim);
 }
 .pill.on, .pill.blue { background: var(--info-soft); color: var(--info); }
-.pill.cyan { background: #E5F0EF; color: var(--cyan); }
-body.theme-dark .pill.cyan { background: #22302E; }
+.pill.cyan { background: var(--cyan-soft); color: var(--cyan); }
 .pill.info { background: var(--accent-soft); color: var(--accent-ink); }
 .pill.off { background: var(--bg-raise); color: var(--text-muted); }
 .pill.rev, .pill.danger { background: var(--danger-soft); color: var(--danger); }
@@ -233,6 +266,10 @@ body.theme-dark .pill.cyan { background: #22302E; }
 .heatmap-title { font-family: var(--font-serif); font-size: 15px; font-weight: 700; color: var(--ink); }
 .heatmap-grid { display: flex; flex-wrap: wrap; gap: 3px; }
 .heatmap-grid div { width: 11px; height: 11px; border-radius: 3px; background: var(--bg-raise); }
+.heatmap-cell.l-1 { background: color-mix(in srgb, var(--accent) 25%, var(--bg-raise)); }
+.heatmap-cell.l-2 { background: color-mix(in srgb, var(--accent) 50%, var(--bg-raise)); }
+.heatmap-cell.l-3 { background: color-mix(in srgb, var(--accent) 75%, var(--bg-raise)); }
+.heatmap-cell.l-4 { background: var(--accent); }
 .chart-card { background: var(--card); border: 1px solid var(--border-subtle); border-radius: 16px; padding: 18px 20px; margin-bottom: 14px; box-shadow: var(--shadow-sm); }
 .chart-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
 .chart-metrics-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
@@ -249,14 +286,14 @@ body.theme-dark .pill.cyan { background: #22302E; }
 .podium-grid > div { background: var(--card); border: 1px solid var(--border-subtle); border-radius: 14px; padding: 14px 16px; text-align: center; }
 
 /* ---- chat -------------------------------------------------- */
-.chat-layout { display: flex; height: calc(100vh - 120px); margin: -10px -12px -34px; }
+.chat-layout { display: flex; height: calc(100vh - var(--topbar-height, 70px) - 52px); height: calc(100dvh - var(--topbar-height, 70px) - 52px); min-height: 320px; margin: -10px -12px -34px; }
 .chat-sidebar {
   width: 240px; flex: none; border-right: 1px solid var(--border-subtle); padding: 14px 12px;
   display: flex; flex-direction: column; gap: 6px; overflow-y: auto;
 }
 .preset-card {
   display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px;
-  border: 1px solid transparent; cursor: pointer; font-size: 12.5px; color: var(--text-dim); transition: all .15s;
+  border: 1px solid transparent; cursor: pointer; font-size: 12.5px; color: var(--text-dim); transition: background-color .15s, border-color .15s, color .15s, box-shadow .15s;
 }
 .preset-card:hover { background: var(--card-soft); color: var(--text-main); }
 .preset-card.active { background: var(--card); border-color: var(--border-subtle); color: var(--ink); box-shadow: var(--shadow-sm); }
@@ -264,13 +301,18 @@ body.theme-dark .pill.cyan { background: #22302E; }
 .card-list { display: flex; flex-direction: column; gap: 4px; }
 .chat-history-list { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; flex: 1; min-height: 60px; }
 .chat-history-list .tree-item { padding-left: 10px; }
+.chat-history-item { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px; color: var(--text-dim); cursor: pointer; }
+.chat-history-item:hover { background: var(--card-soft); }
+.chat-history-item.active { background: var(--accent-soft); color: var(--accent-ink); }
+.chat-history-item .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-drawer-backdrop { position: fixed; inset: 0; z-index: 45; background: rgba(20,19,17,.4); }
-.chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.chat-header-actions { display: flex; align-items: center; gap: 6px; flex: none; }
 .chat-top-header {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding: 10px 18px; border-bottom: 1px solid var(--border-subtle);
 }
-.chat-viewport { flex: 1; overflow-y: auto; padding: 28px 20px; scroll-behavior: smooth; }
+.chat-viewport { flex: 1; min-height: 0; overflow-y: auto; padding: 28px 20px; scroll-behavior: smooth; }
 .chat-hero { max-width: 620px; margin: 8vh auto 0; text-align: center; }
 .chat-hero-art { font-size: 44px; margin-bottom: 14px; }
 .chat-hero-title { font-family: var(--font-serif); font-size: 26px; font-weight: 700; color: var(--ink); margin-bottom: 8px; }
@@ -278,7 +320,7 @@ body.theme-dark .pill.cyan { background: #22302E; }
 .chat-suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 .suggestion-chip {
   font-size: 12px; color: var(--text-dim); background: var(--card); border: 1px solid var(--border-subtle);
-  border-radius: 999px; padding: 7px 16px; cursor: pointer; transition: all .15s;
+  border-radius: 999px; padding: 7px 16px; cursor: pointer; transition: background-color .15s, border-color .15s, color .15s, box-shadow .15s;
 }
 .suggestion-chip:hover { border-color: var(--accent); color: var(--accent-strong); box-shadow: var(--shadow-sm); }
 #chatMessages { display: flex; flex-direction: column; gap: 18px; max-width: 760px; margin: 0 auto; }
@@ -325,6 +367,7 @@ body.theme-dark .pill.cyan { background: #22302E; }
   display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-dim);
   background: var(--bg-raise); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; margin: 2px;
 }
+.attach-chip img { width: 36px; height: 36px; border-radius: 5px; object-fit: cover; }
 .attachment-placeholder {
   border: 1.5px dashed var(--border-subtle); border-radius: 12px; padding: 14px; text-align: center;
   color: var(--text-muted); font-size: 12px; background: var(--card-soft);
@@ -351,7 +394,7 @@ body.theme-dark .pill.cyan { background: #22302E; }
 .toggle-btn:hover { background: var(--bg-raise); color: var(--text-main); }
 
 /* ---- models matrix ----------------------------------------- */
-.model-matrix-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.model-matrix-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 14px; }
 .model-card { background: var(--card); border: 1px solid var(--border-subtle); border-radius: 16px; padding: 16px 18px; box-shadow: var(--shadow-sm); }
 .model-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .model-card-id { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--ink); }
@@ -366,7 +409,7 @@ body.theme-dark .pill.cyan { background: #22302E; }
 }
 .modal-box {
   background: var(--card); border: 1px solid var(--border-subtle); border-radius: 18px;
-  box-shadow: var(--shadow-lg); padding: 26px 28px; max-width: 480px; width: 100%;
+  box-shadow: var(--shadow-lg); padding: 26px 28px; max-width: 480px; width: 100%; max-height: calc(100dvh - 40px); overflow-y: auto;
 }
 .modal-title { font-family: var(--font-serif); font-size: 17px; font-weight: 700; color: var(--ink); margin-bottom: 4px; }
 .modal-desc { font-size: 12.5px; color: var(--text-dim); margin-bottom: 16px; }
@@ -389,22 +432,54 @@ body.theme-dark .pill.cyan { background: #22302E; }
   .podium-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 860px) {
-  .sidebar { left: -250px; transition: left .2s ease; box-shadow: none; }
-  .sidebar.drawer-open { left: 0; box-shadow: var(--shadow-lg); }
+  .sidebar { left: -280px; width: min(280px, calc(100vw - 48px)); visibility: hidden; box-shadow: none; }
+  .sidebar.drawer-open { left: 0; visibility: visible; box-shadow: var(--shadow-lg); }
   .main { margin-left: 0; }
-  .mobile-menu-btn { display: inline-flex !important; }
-  .chat-layout { margin: 0; height: calc(100vh - 150px); }
-  .chat-sidebar { position: fixed; left: -260px; top: 0; bottom: 0; z-index: 50; background: var(--bg); transition: left .2s ease; }
-  .chat-sidebar.chat-drawer-open { left: 0; box-shadow: var(--shadow-lg); }
+  .mobile-menu-btn, .drawer-close { display: inline-flex; align-items: center; justify-content: center; min-width: 40px; min-height: 40px; }
+  .chat-layout { margin: 0; height: calc(100vh - var(--topbar-height, 65px) - 36px); height: calc(100dvh - var(--topbar-height, 65px) - 36px); }
+  .chat-sidebar { position: fixed; left: -280px; top: 0; bottom: 0; width: min(280px, calc(100vw - 48px)); z-index: 50; background: var(--bg); visibility: hidden; }
+  .chat-sidebar.chat-drawer-open { left: 0; visibility: visible; box-shadow: var(--shadow-lg); }
   #btnOpenChatDrawer { display: inline-flex !important; }
-  .content-viewport { padding: 18px 16px 40px; }
-  .topbar { padding: 12px 16px; flex-wrap: wrap; gap: 8px; }
+  .content-viewport { padding: 18px 16px; }
+  .topbar { padding: 10px 16px; gap: 8px; }
   .topbar-subtitle { display: none; }
+  .topbar-right, .topbar-actions { gap: 6px; }
   #timeRangeGroup, #btnExportCsv, #btnToggleSidebar { display: none !important; }
+  .topbar .theme-toggle { min-width: 40px; padding: 8px 10px; }
+  .topbar .theme-toggle .theme-label { display: none; }
+  .chat-top-header { padding: 8px 0; gap: 6px; }
+  .chat-header-actions { gap: 4px; }
+  .chat-header-actions .btn { padding: 6px 9px; min-height: 38px; }
+  .chat-viewport { padding: 16px 0; }
+  .chat-hero { margin-top: 3vh; }
+  .chat-hero-title { font-size: 23px; }
+  .chat-bottom-bar { padding: 10px 0 max(8px, env(safe-area-inset-bottom)); }
+  .chat-controls-row { align-items: flex-end; }
+  .chat-controls-left { gap: 4px; flex: 1; }
+  .chat-select { max-width: 100%; }
+  #chatModelSelect { max-width: 145px; }
+  #btnSendChat { flex: none; min-height: 38px; }
+  .msg-content-wrap { max-width: calc(100% - 42px); }
+  .metric-card { padding: 14px 12px; min-width: 0; }
+  .group-stat-item { padding: 12px; min-width: 0; }
+  .group-stat-row { flex-wrap: wrap; gap: 2px 8px; }
+  .card-panel { padding: 18px 16px; }
+  .modal-box { padding: 22px 18px; }
+}
+@media (max-width: 380px) {
+  .topbar { padding-inline: 12px; }
+  .topbar-title { font-size: 18px; }
+  .topbar-left { gap: 6px; }
+  .topbar-actions .btn { padding-inline: 10px; }
+  .content-viewport { padding-inline: 12px; }
+  .chat-header-actions .btn { padding-inline: 7px; font-size: 10.5px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; }
 }
 </style>
 </head>
-<body class="theme-light">
+<body>
 
 <!-- ============ 全局管理员解锁遮罩 (任意面板 401 时弹出) ============ -->
 <div id="globalAdminLock" class="admin-lock-overlay" hidden>
@@ -423,13 +498,14 @@ body.theme-dark .pill.cyan { background: #22302E; }
 </div>
 
 <!-- ============ 侧栏 ============ -->
-<nav class="sidebar" id="mainSidebar">
+<nav class="sidebar" id="mainSidebar" aria-label="主导航">
   <div class="brand-area">
     <div class="brand-left" id="brandBtn">
       <div class="brand-logo">🐟</div>
       <div class="brand-name">Sakana<span>2API</span></div>
     </div>
     <a class="brand-ext" href="https://github.com/xiaoli0412/sakana2api" target="_blank" rel="noopener" title="GitHub 仓库">↗</a>
+    <button class="btn ghost sm drawer-close" id="btnCloseSidebar" type="button" aria-label="关闭主导航">✕</button>
   </div>
   <div class="sidebar-nav">
     <button class="nav-btn active" data-tab="dash"><span class="nav-icon">◈</span><span class="nav-text">仪表盘</span></button>
@@ -447,6 +523,7 @@ body.theme-dark .pill.cyan { background: #22302E; }
     <button class="nav-btn" data-tab="settings" style="margin-top:10px"><span class="nav-icon">⚙</span><span class="nav-text">系统设置</span></button>
   </div>
   <div class="sidebar-footer">
+    <button class="btn theme-toggle sidebar-theme" id="btnSidebarTheme" type="button" data-theme-toggle aria-label="暖夜主题" aria-pressed="false" title="切换到暖夜主题"><span class="theme-icon" aria-hidden="true"></span><span class="theme-label">暖夜</span></button>
     <div class="sidebar-status-wrap" id="statusDotWrap" title="服务状态">
       <span class="status-dot" id="statusDot"></span>
       <span class="sidebar-footer-text" id="sidebarStatusText">连接中…</span>
@@ -460,20 +537,23 @@ body.theme-dark .pill.cyan { background: #22302E; }
 <div class="main">
   <header class="topbar">
     <div class="topbar-left">
-      <button class="btn ghost sm mobile-menu-btn" id="btnOpenSidebar">☰</button>
+      <button class="btn ghost sm mobile-menu-btn" id="btnOpenSidebar" type="button" aria-label="打开主导航" aria-controls="mainSidebar" aria-expanded="false">☰</button>
       <span class="topbar-title" id="pageHeaderTitle">仪表盘</span>
       <span class="topbar-subtitle" id="pageHeaderSub">服务运行总览</span>
     </div>
-    <div class="topbar-right" id="dashTopActions">
-      <div class="btn-group" id="timeRangeGroup">
-        <button class="btn-group-btn active" data-range="24h">24h</button>
-        <button class="btn-group-btn" data-range="7d">7d</button>
-        <button class="btn-group-btn" data-range="30d">30d</button>
-        <button class="btn-group-btn" data-range="90d">90d</button>
+    <div class="topbar-right">
+      <div class="topbar-actions" id="dashTopActions">
+        <div class="btn-group" id="timeRangeGroup">
+          <button class="btn-group-btn active" data-range="24h">24h</button>
+          <button class="btn-group-btn" data-range="7d">7d</button>
+          <button class="btn-group-btn" data-range="30d">30d</button>
+          <button class="btn-group-btn" data-range="90d">90d</button>
+        </div>
+        <button class="btn sm" id="btnGlobalRefresh" title="刷新全部数据">↻ 刷新</button>
+        <button class="btn sm" id="btnExportCsv" title="导出 CSV">↓ CSV</button>
       </div>
-      <button class="btn sm" id="btnGlobalRefresh" title="刷新全部数据">↻ 刷新</button>
-      <button class="btn sm" id="btnExportCsv" title="导出 CSV">↓ CSV</button>
-      <button class="btn ghost sm" id="btnToggleSidebar" title="收起/展开侧栏">▤</button>
+      <button class="btn sm theme-toggle" id="btnHeaderTheme" type="button" data-theme-toggle aria-label="暖夜主题" aria-pressed="false" title="切换到暖夜主题"><span class="theme-icon" aria-hidden="true"></span><span class="theme-label">暖夜</span></button>
+      <button class="btn ghost sm" id="btnToggleSidebar" type="button" aria-label="收起主导航" aria-controls="mainSidebar" aria-expanded="true" title="收起主导航">▤</button>
     </div>
   </header>
 
@@ -584,7 +664,7 @@ body.theme-dark .pill.cyan { background: #22302E; }
       <div class="podium-grid" id="podiumContainer"></div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>模型</th><th>请求数</th><th>Tokens</th><th>错误</th><th>占比</th></tr></thead>
+          <thead><tr><th>模型</th><th>请求数</th><th>Tokens</th><th>错误</th><th>请求占比</th></tr></thead>
           <tbody id="modelRankTbody"></tbody>
         </table>
       </div>
@@ -593,7 +673,11 @@ body.theme-dark .pill.cyan { background: #22302E; }
     <!-- ================= PANE: Sakana Chat ================= -->
     <div data-pane="chat" hidden>
       <div class="chat-layout">
-        <div class="chat-sidebar" id="chatSidebar">
+        <div class="chat-sidebar" id="chatSidebar" aria-label="会话列表">
+          <div class="drawer-heading">
+            <button class="btn sm theme-toggle" id="btnChatSidebarTheme" type="button" data-theme-toggle aria-label="暖夜主题" aria-pressed="false" title="切换到暖夜主题"><span class="theme-icon" aria-hidden="true"></span><span class="theme-label">暖夜</span></button>
+            <button class="btn ghost sm drawer-close" id="btnCloseChatDrawer" type="button" aria-label="关闭会话列表">✕</button>
+          </div>
           <button class="btn primary" id="btnNewChat" style="width:100%">+ 新聊天</button>
           <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px">
             <div style="font-size:10.5px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px">预设助理</div>
@@ -622,10 +706,11 @@ body.theme-dark .pill.cyan { background: #22302E; }
         <div class="chat-main">
           <div class="chat-top-header">
             <div style="display:flex;align-items:center;gap:10px;min-width:0">
-              <button class="btn ghost sm" id="btnOpenChatDrawer" style="display:none;flex:none" title="会话列表">☰</button>
+              <button class="btn ghost sm" id="btnOpenChatDrawer" type="button" style="display:none;flex:none" aria-label="打开会话列表" aria-controls="chatSidebar" aria-expanded="false" title="会话列表">☰</button>
               <span id="chatCurrentTitle" style="font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">新会话</span>
             </div>
-            <div style="display:flex;align-items:center;gap:6px">
+            <div class="chat-header-actions">
+              <button class="btn sm theme-toggle" id="btnChatTheme" type="button" data-theme-toggle aria-label="暖夜主题" aria-pressed="false" title="切换到暖夜主题"><span class="theme-icon" aria-hidden="true"></span><span class="theme-label">暖夜</span></button>
               <button class="btn sm" id="btnExportChat" title="导出当前对话">↗ 导出</button>
               <button class="btn sm" id="btnClearChat" title="清空当前消息">✕ 清屏</button>
             </div>
@@ -783,7 +868,7 @@ body.theme-dark .pill.cyan { background: #22302E; }
     <!-- ================= PANE: 系统设置 ================= -->
     <div data-pane="settings" hidden>
       <div class="section-title">系统设置与运行诊断</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:16px">
+      <div class="settings-grid">
         <div class="card-panel">
           <div style="font-family:var(--font-serif);font-weight:700;font-size:15px;color:var(--ink);margin-bottom:12px">API 接入端点</div>
           <div style="font-size:11.5px;color:var(--text-dim);margin-bottom:4px">当前 API Base URL:</div>
@@ -793,8 +878,8 @@ body.theme-dark .pill.cyan { background: #22302E; }
           </div>
           <div style="font-size:11.5px;color:var(--text-dim);margin:14px 0 6px">外观主题:</div>
           <div style="display:flex;gap:8px">
-            <button class="btn sm" id="btnThemeDark">◑ 暖夜</button>
-            <button class="btn sm" id="btnThemeLight">◐ 纸白</button>
+            <button class="btn sm" id="btnThemeDark" type="button" data-theme-choice="dark" aria-pressed="false">◑ 暖夜</button>
+            <button class="btn sm" id="btnThemeLight" type="button" data-theme-choice="light" aria-pressed="true">◐ 纸白</button>
           </div>
         </div>
 
@@ -889,30 +974,36 @@ body.theme-dark .pill.cyan { background: #22302E; }
 <input type="file" id="fileUploadInput" accept="image/*,.txt,.md,.csv,.json,.py,.js,.ts,.html,.css,.xml,.yaml,.yml,.log,.sh,.env,.sql,.rb,.go,.java,.c,.cpp,.h,.rs,.toml,.ini,.cfg" multiple hidden>
 
 <script>
-  try {
-    if (localStorage.getItem('sakana_theme') === 'light') document.documentElement.dataset.theme = 'light';
-  } catch {}
-</script>
-</script>
-<script>
 'use strict';
 
 const $ = id => document.getElementById(id);
 
 const THEME_STORAGE_KEY = 'sakana_theme';
-function readStoredTheme() {
-  try { return localStorage.getItem(THEME_STORAGE_KEY) === 'dark' ? 'dark' : 'light'; } catch { return 'light'; }
-}
 function applyTheme(theme, persist = true) {
-  const light = theme === 'light';
-  document.body.classList.toggle('theme-light', light);
-  document.documentElement.dataset.theme = light ? 'light' : 'dark';
-  $('btnThemeDark')?.classList.toggle('active', !light);
-  $('btnThemeLight')?.classList.toggle('active', light);
+  const selected = theme === 'dark' ? 'dark' : 'light';
+  const dark = selected === 'dark';
+  document.documentElement.dataset.theme = selected;
+  document.querySelectorAll('[data-theme-toggle]').forEach(button => {
+    button.setAttribute('aria-pressed', String(dark));
+    button.title = dark ? '切换到纸白主题' : '切换到暖夜主题';
+    button.querySelector('.theme-label').textContent = dark ? '纸白' : '暖夜';
+  });
+  document.querySelectorAll('[data-theme-choice]').forEach(button => {
+    const active = button.dataset.themeChoice === selected;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
   if (persist) {
-    try { localStorage.setItem(THEME_STORAGE_KEY, light ? 'light' : 'dark'); } catch {}
+    try { localStorage.setItem(THEME_STORAGE_KEY, selected); } catch {}
   }
+  renderTrendChart();
 }
+document.querySelectorAll('[data-theme-toggle], [data-theme-choice]').forEach(button => {
+  button.addEventListener('click', () => applyTheme(button.dataset.themeChoice || (document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark')));
+});
+window.addEventListener('storage', event => {
+  if (event.key === THEME_STORAGE_KEY || event.key === null) applyTheme(event.newValue, false);
+});
 
 let activeTab = 'dash';
 let statsData = null;
@@ -931,7 +1022,7 @@ function safeParseJson(raw, fallback) {
 
 // Keep canvas colors in sync with the selected light/dark token set.
 function cssToken(name, fallback) {
-  const value = getComputedStyle(document.body).getPropertyValue(name).trim();
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   return value || fallback;
 }
 
@@ -969,16 +1060,33 @@ function fmtDT(ts) {
 }
 
 /* ================= ADMIN AUTH (共享于所有运维面板) ================= */
-let adminToken = sessionStorage.getItem('sak_admin_key') || '';
+const ADMIN_KEY_STORAGE = 'sak_admin_key';
+const CLIENT_SESSION_SCOPE_KEY = 'sakana_client_session_scope';
+function getClientSessionScope() {
+  try {
+    let scope = localStorage.getItem(CLIENT_SESSION_SCOPE_KEY);
+    if (!/^[a-f0-9-]{36}$/i.test(scope || '')) {
+      scope = crypto.randomUUID();
+      localStorage.setItem(CLIENT_SESSION_SCOPE_KEY, scope);
+    }
+    return scope;
+  } catch { return ''; }
+}
+const clientSessionScope = getClientSessionScope();
+let adminToken = sessionStorage.getItem(ADMIN_KEY_STORAGE) || '';
 
 function getAuthHeaders() {
   return adminToken ? { authorization: 'Bearer ' + adminToken } : {};
 }
 
+function getBusinessHeaders() {
+  return clientSessionScope ? { 'x-client-session-id': clientSessionScope } : {};
+}
+
 async function apiFetch(url, opts = {}) {
   const res = await fetch(url, {
     ...opts,
-    headers: { ...getAuthHeaders(), ...(opts.headers || {}) },
+    headers: { ...getBusinessHeaders(), ...getAuthHeaders(), ...(opts.headers || {}) },
   });
   if (res.status === 401 || res.status === 403) {
     showAdminLock();
@@ -1041,6 +1149,8 @@ document.querySelectorAll('.nav-tree-group a[data-tab]').forEach(a => {
 });
 
 function switchTab(tab) {
+  setSidebarDrawer(false, false);
+  setChatDrawer(false, false);
   activeTab = tab;
   document.querySelectorAll('.sidebar-nav button').forEach(b => {
     b.classList.toggle('active', b.dataset.tab === tab);
@@ -1082,31 +1192,78 @@ window.addEventListener('hashchange', () => {
 
 $('brandBtn').onclick = () => switchTab('dash');
 
-function setSidebarDrawer(open) {
-  const sidebar = $('mainSidebar');
-  const backdrop = $('sidebarBackdrop');
-  if (!sidebar || !backdrop) return;
-  sidebar.classList.toggle('drawer-open', open);
-  backdrop.hidden = !open;
-  document.body.style.overflow = open ? 'hidden' : '';
+const mobileNavigation = window.matchMedia('(max-width: 860px)');
+function syncNavigationState() {
+  const mobile = mobileNavigation.matches;
+  const sidebarOpen = mobile && $('mainSidebar').classList.contains('drawer-open');
+  const chatOpen = mobile && $('chatSidebar').classList.contains('chat-drawer-open');
+  const sidebarVisible = mobile ? sidebarOpen : !$('mainSidebar').classList.contains('collapsed');
+  $('mainSidebar').inert = !sidebarVisible;
+  $('chatSidebar').inert = mobile && !chatOpen;
+  $('btnOpenSidebar').setAttribute('aria-expanded', String(sidebarOpen));
+  $('btnOpenChatDrawer').setAttribute('aria-expanded', String(chatOpen));
+  $('btnToggleSidebar').setAttribute('aria-expanded', String(sidebarVisible));
+  $('btnToggleSidebar').setAttribute('aria-label', sidebarVisible ? '收起主导航' : '展开主导航');
+  $('btnToggleSidebar').title = sidebarVisible ? '收起主导航' : '展开主导航';
+  document.body.classList.toggle('drawer-visible', sidebarOpen || chatOpen);
+}
+function setSidebarDrawer(open, restoreFocus = true) {
+  open = open && mobileNavigation.matches;
+  const wasOpen = $('mainSidebar').classList.contains('drawer-open');
+  if (open) setChatDrawer(false, false);
+  $('mainSidebar').classList.toggle('drawer-open', open);
+  $('sidebarBackdrop').hidden = !open;
+  syncNavigationState();
+  if (open) $('btnCloseSidebar').focus();
+  else if (wasOpen && restoreFocus) $('btnOpenSidebar').focus();
 }
 $('btnOpenSidebar').onclick = () => setSidebarDrawer(true);
+$('btnCloseSidebar').onclick = () => setSidebarDrawer(false);
 $('sidebarBackdrop').onclick = () => setSidebarDrawer(false);
 
-// Chat sidebar drawer (narrow screens): toggle + backdrop close.
-function setChatDrawer(open) {
-  $('chatSidebar')?.classList.toggle('chat-drawer-open', open);
-  const backdrop = $('chatDrawerBackdrop');
-  if (backdrop) backdrop.hidden = !open;
+function setChatDrawer(open, restoreFocus = true) {
+  open = open && mobileNavigation.matches;
+  const wasOpen = $('chatSidebar').classList.contains('chat-drawer-open');
+  if (open) setSidebarDrawer(false, false);
+  $('chatSidebar').classList.toggle('chat-drawer-open', open);
+  $('chatDrawerBackdrop').hidden = !open;
+  syncNavigationState();
+  if (open) $('btnCloseChatDrawer').focus();
+  else if (wasOpen && restoreFocus) $('btnOpenChatDrawer').focus();
 }
-$('btnOpenChatDrawer')?.addEventListener('click', () => setChatDrawer(true));
-$('chatDrawerBackdrop')?.addEventListener('click', () => setChatDrawer(false));
-$('chatSidebar')?.addEventListener('click', (e) => {
-  if (e.target.closest('[data-tab], .chat-history-item')) setChatDrawer(false);
+$('btnOpenChatDrawer').onclick = () => setChatDrawer(true);
+$('btnCloseChatDrawer').onclick = () => setChatDrawer(false);
+$('chatDrawerBackdrop').onclick = () => setChatDrawer(false);
+$('chatSidebar').addEventListener('click', event => {
+  if (event.target.closest('.chat-history-item, #btnNewChat')) setChatDrawer(false);
 });
-$('mainSidebar').addEventListener('click', (e) => {
-  if (e.target.closest('[data-tab]')) setSidebarDrawer(false);
+// Off-screen drawers stay out of the tab order; open drawers contain keyboard focus.
+document.addEventListener('keydown', event => {
+  if (!mobileNavigation.matches) return;
+  const sidebarOpen = $('mainSidebar').classList.contains('drawer-open');
+  const drawer = sidebarOpen ? $('mainSidebar') : $('chatSidebar').classList.contains('chat-drawer-open') ? $('chatSidebar') : null;
+  if (!drawer) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    if (sidebarOpen) setSidebarDrawer(false);
+    else setChatDrawer(false);
+  } else if (event.key === 'Tab') {
+    const controls = [...drawer.querySelectorAll('button, a[href], input, select, textarea, [tabindex]')].filter(el => !el.disabled && el.tabIndex >= 0 && el.getClientRects().length);
+    const first = controls[0], last = controls[controls.length - 1];
+    if (event.shiftKey && (document.activeElement === first || !drawer.contains(document.activeElement))) {
+      event.preventDefault();
+      last?.focus();
+    } else if (!event.shiftKey && (document.activeElement === last || !drawer.contains(document.activeElement))) {
+      event.preventDefault();
+      first?.focus();
+    }
+  }
 });
+mobileNavigation.addEventListener('change', () => {
+  setSidebarDrawer(false, false);
+  setChatDrawer(false, false);
+});
+syncNavigationState();
 $('btnGlobalRefresh').onclick = () => {
   refreshStats();
   toast('已刷新全局数据');
@@ -1116,6 +1273,7 @@ $('btnExportCsv').onclick = () => window.open('/api/export-audit.csv', '_blank')
 // Sidebar toggle
 $('btnToggleSidebar').onclick = () => {
   $('mainSidebar').classList.toggle('collapsed');
+  syncNavigationState();
 };
 
 /* ================= DASHBOARD & CHARTS ================= */
@@ -1268,6 +1426,7 @@ function renderTrendChart() {
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
   const rect = canvas.parentElement.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
   
   canvas.width = Math.max(1, rect.width * dpr);
   canvas.height = Math.max(1, rect.height * dpr);
@@ -1299,7 +1458,7 @@ function renderTrendChart() {
   const chartH = h - paddingY * 2;
 
   // Grid lines
-  ctx.strokeStyle = cssToken('--chart-grid', 'rgba(255, 255, 255, 0.1)');
+  ctx.strokeStyle = cssToken('--chart-grid', '#403D36');
   ctx.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
     const y = paddingY + (chartH / 4) * i;
@@ -1311,14 +1470,14 @@ function renderTrendChart() {
     const valLabel = currentChartMetric === 'cost' 
       ? '$' + ((maxVal * (4 - i) / 4)).toFixed(2)
       : fmtK(Math.round(maxVal * (4 - i) / 4));
-    ctx.fillStyle = cssToken('--chart-label', '#89919d');
+    ctx.fillStyle = cssToken('--chart-label', '#B9B3A7');
     ctx.font = '10.5px ' + cssToken('--font-sans', 'sans-serif');
     ctx.textAlign = 'right';
     ctx.fillText(valLabel, paddingX - 8, y + 3.5);
   }
 
   const pts = dataPoints.map((val, idx) => {
-    const x = paddingX + (chartW / (dataPoints.length - 1)) * idx;
+    const x = paddingX + (chartW / Math.max(1, dataPoints.length - 1)) * idx;
     const y = paddingY + chartH - (val / maxVal) * chartH;
     return { x, y, val, label: series[idx]?.hourStr || '' };
   });
@@ -1327,8 +1486,8 @@ function renderTrendChart() {
     const barW = Math.max(4, chartW / dataPoints.length - 4);
     pts.forEach(p => {
       const grad = ctx.createLinearGradient(0, p.y, 0, paddingY + chartH);
-      grad.addColorStop(0, cssToken('--chart-line', '#66d9b5'));
-      grad.addColorStop(1, cssToken('--chart-fill-end', 'rgba(53, 201, 154, 0.02)'));
+      grad.addColorStop(0, cssToken('--chart-line', '#E88F6F'));
+      grad.addColorStop(1, cssToken('--chart-fill-end', 'rgba(232,143,111,.04)'));
       ctx.fillStyle = grad;
       ctx.fillRect(p.x - barW/2, p.y, barW, paddingY + chartH - p.y);
     });
@@ -1346,8 +1505,8 @@ function renderTrendChart() {
     if (currentChartType === 'area') {
       ctx.save();
       const fillGrad = ctx.createLinearGradient(0, paddingY, 0, paddingY + chartH);
-      fillGrad.addColorStop(0, cssToken('--chart-fill-start', 'rgba(53, 201, 154, 0.34)'));
-      fillGrad.addColorStop(0.7, cssToken('--chart-fill-end', 'rgba(94, 200, 230, 0.02)'));
+      fillGrad.addColorStop(0, cssToken('--chart-fill-start', 'rgba(232,143,111,.28)'));
+      fillGrad.addColorStop(0.7, cssToken('--chart-fill-end', 'rgba(232,143,111,.04)'));
       fillGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
       
       const areaPath = new Path2D();
@@ -1366,7 +1525,7 @@ function renderTrendChart() {
       ctx.restore();
     }
 
-    ctx.strokeStyle = cssToken('--chart-line', '#66d9b5');
+    ctx.strokeStyle = cssToken('--chart-line', '#E88F6F');
     ctx.lineWidth = 2.5;
     ctx.shadowColor = 'transparent';
     ctx.shadowBlur = 0;
@@ -1375,11 +1534,13 @@ function renderTrendChart() {
   }
 
   // Draw X labels
-  ctx.fillStyle = cssToken('--chart-label', '#89919d');
+  ctx.fillStyle = cssToken('--chart-label', '#B9B3A7');
   ctx.font = '10px ' + cssToken('--font-sans', 'sans-serif');
   ctx.textAlign = 'center';
+  const labelEvery = Math.max(1, Math.ceil(pts.length / Math.max(2, Math.floor(chartW / 55))));
   pts.forEach((p, idx) => {
-    if (idx % 4 === 0 || idx === pts.length - 1) {
+    if (idx % labelEvery === 0 || idx === pts.length - 1) {
+      if (idx !== pts.length - 1 && pts[pts.length - 1].x - p.x < 45) return;
       ctx.fillText(p.label, p.x, h - 6);
     }
   });
@@ -1399,7 +1560,7 @@ function renderModelRanks(byModel) {
   pod.innerHTML = '';
   if (!models.length) {
     pod.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--text-dim)">暂无请求数据 — 调用 /v1/chat/completions 后这里会出现模型排行</div>';
-    $('modelRankTbody').innerHTML = '<tr><td colspan="9" style="text-align:center;padding:30px;color:var(--text-dim)">暂无数据</td></tr>';
+    $('modelRankTbody').innerHTML = '<tr><td colspan="5" style="text-align:center;padding:30px;color:var(--text-dim)">暂无数据</td></tr>';
     return;
   }
   const top3 = models.slice(0, 3);
@@ -1414,19 +1575,16 @@ function renderModelRanks(byModel) {
     pod.appendChild(card);
   });
 
-  // Table (Image 1 Style)
+  // Match the five visible columns; request share is relative to all ranked models.
+  const totalRequests = models.reduce((sum, model) => sum + model.requests, 0);
   const tbody = $('modelRankTbody');
   tbody.innerHTML = models.map((m, i) => `
     <tr>
-      <td><span class="pill ${i < 3 ? 'on' : 'off'}">${i + 1}</span></td>
-      <td class="mono" style="font-weight:600;color:var(--text-main)">${esc(m.name)}</td>
+      <td class="mono" style="font-weight:600;color:var(--text-main)"><span class="pill ${i < 3 ? 'on' : 'off'}">${i + 1}</span> ${esc(m.name)}</td>
       <td class="mono">${m.requests}</td>
-      <td class="mono">${fmtK(m.pTok)}</td>
-      <td class="mono">${lastCacheStats.size}</td>
-      <td class="mono">${fmtK(m.cTok)}</td>
-      <td>${lastCacheStats.hitRate}</td>
       <td class="mono">${fmtK(m.totalTok)}</td>
-      <td class="mono" style="color:var(--accent-strong)">$${m.cost}</td>
+      <td class="mono">${m.errCount}</td>
+      <td class="mono">${totalRequests ? (m.requests * 100 / totalRequests).toFixed(1) : '0.0'}%</td>
     </tr>
   `).join('');
 }
@@ -1483,6 +1641,7 @@ function sanitizeStoredSession(session) {
     id: String(session.id).slice(0, 120),
     title: String(session.title || '新会话').slice(0, 120),
     conversationId: session.conversationId ? String(session.conversationId).slice(0, 180) : undefined,
+    contextRecoveryCode: ['CONTEXT_EXPIRED', 'CONTEXT_MODEL_MISMATCH'].includes(session.contextRecoveryCode) ? session.contextRecoveryCode : session.contextExpired === true ? 'CONTEXT_EXPIRED' : undefined,
     createdAt: Number(session.createdAt) || Date.now(),
     messages,
   };
@@ -1802,14 +1961,14 @@ function renderCharacterCards() {
     const item = document.createElement('div');
     item.className = 'preset-card';
     item.style.cssText = 'align-items:center;gap:8px;cursor:pointer';
-    if (activeCharacterCard && activeCharacterCard.id === c.id) item.style.outline = '1px solid var(--accent-color)';
+    if (activeCharacterCard && activeCharacterCard.id === c.id) item.style.outline = '1px solid var(--accent)';
     item.innerHTML = `
       <img src="/api/characters/${encodeURIComponent(c.id)}/avatar" alt="" style="width:26px;height:26px;border-radius:6px;object-fit:cover;flex:none">
       <div style="flex:1;min-width:0">
         <div class="p-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(c.name || '未命名')}</div>
         <div style="font-size:10px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(c.description || '')}</div>
       </div>
-      ${activeCharacterCard && activeCharacterCard.id === c.id ? '<span style="font-size:10px;color:#4ade80;flex:none">使用中</span>' : ''}
+      ${activeCharacterCard && activeCharacterCard.id === c.id ? '<span style="font-size:10px;color:var(--ok);flex:none">使用中</span>' : ''}
     `;
     item.onclick = async () => {
       try {
@@ -1873,7 +2032,7 @@ $('btnClearActiveCard').onclick = async () => {
 // 拖放上传角色卡(拖到角色卡区块)
 const cardDropZone = $('characterCardList');
 if (cardDropZone) {
-  cardDropZone.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); cardDropZone.style.outline = '1px dashed var(--accent-color)'; });
+  cardDropZone.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); cardDropZone.style.outline = '1px dashed var(--accent)'; });
   cardDropZone.addEventListener('dragleave', () => { cardDropZone.style.outline = ''; });
   cardDropZone.addEventListener('drop', (e) => {
     e.preventDefault();
@@ -2059,7 +2218,7 @@ function renderMarkdown(text) {
     return `<pre><div class="code-header"><span>${esc(l)}</span><button class="copy-btn" onclick="navigator.clipboard.writeText(this.parentElement.nextElementSibling.textContent);toast('代码已复制')">复制代码</button></div><code>${code}</code></pre>`;
   });
   // Inline code
-  html = html.replace(/`([^`\n]+)`/g, '<code style="background:rgba(255,255,255,0.08);padding:2px 6px;border-radius:4px;font-family:var(--font-mono)">$1</code>');
+  html = html.replace(/`([^`\n]+)`/g, '<code style="background:var(--bg-raise);padding:2px 6px;border-radius:4px;font-family:var(--font-mono)">$1</code>');
   // Bold & Italic
   html = html.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/\*([^*]+)\*/g, '<i>$1</i>');
   // Links
@@ -2160,9 +2319,14 @@ function stopChatGeneration() {
   if (sess && sess.conversationId) {
     fetch('/v1/conversations/' + encodeURIComponent(sess.conversationId) + '/stop', {
       method: 'POST',
-      headers: { ...getAuthHeaders() },
+      headers: { ...getBusinessHeaders(), ...getAuthHeaders() },
     }).catch(() => {});
   }
+}
+
+function contextRecoveryMessage(code) {
+  const reason = code === 'CONTEXT_MODEL_MISMATCH' ? '当前模型与会话模型不匹配。' : '会话上下文已过期。';
+  return reason + '请新建聊天，重新提供完整历史并上传原始附件后再发送。';
 }
 
 async function sendChatMessage({ fromRetry = false } = {}) {
@@ -2181,6 +2345,10 @@ async function sendChatMessage({ fromRetry = false } = {}) {
 
   if (!activeConversationId) createNewChatSession();
   const currentSess = chatSessions.find(s => s.id === activeConversationId);
+  if (currentSess.contextRecoveryCode) {
+    toast(contextRecoveryMessage(currentSess.contextRecoveryCode), 'err');
+    return;
+  }
 
   let savedFiles;
   if (fromRetry) {
@@ -2223,7 +2391,8 @@ async function sendChatMessage({ fromRetry = false } = {}) {
 
   const reqBody = {
     model,
-    messages: currentSess.messages.map(m => ({ role: m.role, content: messageToContent(m) })),
+    messages: (currentSess.conversationId ? currentSess.messages.slice(-1) : currentSess.messages).map(m => ({ role: m.role, content: messageToContent(m) })),
+    history_mode: currentSess.conversationId ? 'delta' : 'full',
     ...(currentSess.conversationId ? { conversation_id: currentSess.conversationId } : {}),
     ...(style && style !== 'default' ? { style } : {}),
     stream: true,
@@ -2240,22 +2409,29 @@ async function sendChatMessage({ fromRetry = false } = {}) {
   try {
     const resp = await fetch('/v1/chat/completions', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...getAuthHeaders() },
+      headers: { 'content-type': 'application/json', ...getBusinessHeaders(), ...getAuthHeaders() },
       body: requestPayload,
       signal: ctrl.signal,
     });
 
-    // Remember the upstream conversation id — needed for stickiness on the
-    // next turn and for the stop button to cancel the live generation.
+    if (!resp.ok || !resp.body) {
+      const err = await resp.json().catch(() => ({}));
+      const code = err.error?.code || err.code;
+      if (resp.status === 409 && ['CONTEXT_EXPIRED', 'CONTEXT_MODEL_MISMATCH'].includes(code)) {
+        currentSess.contextRecoveryCode = code;
+        saveChatSessions();
+        const recovery = new Error(contextRecoveryMessage(code));
+        recovery.code = code;
+        throw recovery;
+      }
+      throw new Error(err.error?.message || ('HTTP ' + resp.status));
+    }
+
+    // Only successful responses establish a continuation ID.
     const convH = resp.headers.get('x-conversation-id');
     if (convH) {
       currentSess.conversationId = convH;
       saveChatSessions();
-    }
-
-    if (!resp.ok || !resp.body) {
-      const err = await resp.json().catch(() => ({}));
-      throw new Error(err.error?.message || ('HTTP ' + resp.status));
     }
 
     const reader = resp.body.getReader();
@@ -2353,9 +2529,12 @@ async function sendChatMessage({ fromRetry = false } = {}) {
       } else {
         bodyContentEl.innerHTML = '<span style="color:var(--text-dim)">⏹ 已停止生成</span>';
       }
+    } else if (['CONTEXT_EXPIRED', 'CONTEXT_MODEL_MISMATCH'].includes(e.code)) {
+      clearRetryAttachments();
+      bodyContentEl.innerHTML = `<span role="alert" style="color:var(--danger)">${esc(e.message)}</span> <button class="btn sm" style="margin-left:8px" onclick="createNewChatSession()">新建聊天</button>`;
     } else {
       setRetryAttachments(savedFiles, currentSess.id, userMessageTs);
-      bodyContentEl.innerHTML = `<span style="color:var(--rose)">⚠️ 请求发生错误: ${esc(e.message)}</span> <button class="btn sm" style="margin-left:8px" onclick="retryLastChatMessage()">🔄 重试</button>`;
+      bodyContentEl.innerHTML = `<span style="color:var(--danger)">⚠️ 请求发生错误: ${esc(e.message)}</span> <button class="btn sm" style="margin-left:8px" onclick="retryLastChatMessage()">🔄 重试</button>`;
     }
   }
 
@@ -2711,8 +2890,6 @@ $('btnCloseAuditModal').onclick = () => $('auditDetailModal').hidden = true;
 /* ================= TAB 7: SETTINGS & HEALTH ================= */
 $('settingBaseUrl').value = `${location.origin}/v1`;
 
-$('btnThemeDark').onclick = () => applyTheme('dark');
-$('btnThemeLight').onclick = () => applyTheme('light');
 
 // Mail provider configuration (panel-saved, runtime-effective)
 async function loadMailConfigUi() {
@@ -2796,7 +2973,7 @@ $('btnTestPing').onclick = async () => {
       toast(`延迟测速: ${ms}ms`);
     }
   } catch (e) {
-    $('settingPingStats').innerHTML = `<span style="color:var(--rose)">🔴 测速异常: ${e.message}</span>`;
+    $('settingPingStats').innerHTML = `<span style="color:var(--danger)">🔴 测速异常: ${e.message}</span>`;
   }
 };
 
@@ -2823,8 +3000,14 @@ async function checkHealth() {
   }
 }
 
+// Resize the canvas after viewport, sidebar, or pane layout changes.
+new ResizeObserver(() => renderTrendChart()).observe($('trendChart').parentElement);
+new ResizeObserver(() => {
+  document.documentElement.style.setProperty('--topbar-height', document.querySelector('.topbar').getBoundingClientRect().height + 'px');
+}).observe(document.querySelector('.topbar'));
+
 // Global bootstrap
-applyTheme(readStoredTheme(), false);
+applyTheme(document.documentElement.dataset.theme, false);
 initChat();
 refreshStats();
 checkHealth();

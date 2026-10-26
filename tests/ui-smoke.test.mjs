@@ -21,6 +21,7 @@ const models = [
 const audit = [{ id: 'smoke-1', ts: Date.now(), method: 'POST', path: '/v1/chat/completions', model: 'sakana', status: 200, duration: 42, error: null }];
 const requestBodies = [];
 let chatRequests = 0;
+let contextFailureCode = 'CONTEXT_EXPIRED';
 
 const server = createServer((req, res) => {
   const url = new URL(req.url || '/', 'http://127.0.0.1');
@@ -41,6 +42,10 @@ const server = createServer((req, res) => {
       chatRequests++;
       if (chatRequests === 1) {
         body(500, { error: { message: 'intentional attachment retry failure' } });
+        return;
+      }
+      if (chatRequests === 4 || contextFailureCode === 'CONTEXT_MODEL_MISMATCH') {
+        body(409, { error: { code: contextFailureCode, message: 'Conversation state cannot continue' } });
         return;
       }
       res.writeHead(200, {
@@ -71,7 +76,7 @@ const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
 page.on('pageerror', error => errors.push(`pageerror: ${error.message}`));
 page.on('console', message => {
   if (message.type() !== 'error') return;
-  if (/Failed to load resource: the server responded with a status of 500/i.test(message.text())) return;
+  if (/Failed to load resource: the server responded with a status of (500|409)/i.test(message.text())) return;
   errors.push(`console: ${message.text()}`);
 });
 
@@ -92,6 +97,20 @@ try {
   if (!initial.noRemoteFonts || initial.panes < 8 || initial.tabs < 8 || initial.options !== 9 || initial.hasRpOption) throw new Error(`unexpected initial UI: ${JSON.stringify(initial)}`);
   if (!initial.togglesRemoved || !initial.badgeRemoved || !initial.styleSelect) throw new Error(`composer cleanup failed: ${JSON.stringify(initial)}`);
 
+  const ranking = await page.evaluate(() => {
+    renderModelRanks({});
+    const emptyColumns = document.querySelector('#modelRankTbody td').colSpan;
+    renderModelRanks({ sakana: { requests: 3, charsIn: 400, charsOut: 200, errCount: 1 }, 'sakana-mini': { requests: 1, charsIn: 80, charsOut: 40, errCount: 0 } });
+    const table = document.getElementById('modelRankTbody').closest('table');
+    const headers = [...table.querySelectorAll('th')].map(el => el.textContent);
+    const rows = [...table.querySelectorAll('tbody tr')].map(row => [...row.cells].map(cell => cell.textContent.trim()));
+    renderModelRanks({ sakana: { requests: 0 } });
+    const zeroShare = document.querySelector('#modelRankTbody tr').lastElementChild.textContent;
+    return { emptyColumns, headers, rows, zeroShare };
+  });
+  if (ranking.emptyColumns !== 5 || ranking.headers.join('|') !== '模型|请求数|Tokens|错误|请求占比' || ranking.rows.some(row => row.length !== 5)) throw new Error(`ranking columns misaligned: ${JSON.stringify(ranking)}`);
+  if (!ranking.rows[0][0].includes('sakana') || ranking.rows[0].slice(1).join('|') !== '3|150|1|75.0%' || ranking.rows[1].slice(1).join('|') !== '1|30|0|25.0%' || ranking.zeroShare !== '0.0%') throw new Error(`ranking values incorrect: ${JSON.stringify(ranking)}`);
+
   await page.click('#btnOpenSidebar');
   if (!(await page.locator('#mainSidebar').evaluate(el => el.classList.contains('drawer-open')))) throw new Error('mobile drawer did not open');
   // The backdrop center is covered by the sidebar itself; users tap the
@@ -102,8 +121,8 @@ try {
   await page.click('#btnOpenSidebar');
   await page.click('[data-tab="settings"]');
   await page.click('#btnThemeLight');
-  const theme = await page.evaluate(() => ({ className: document.body.className, stored: localStorage.getItem('sakana_theme') }));
-  if (!theme.className.includes('theme-light') || theme.stored !== 'light') throw new Error(`theme persistence failed: ${JSON.stringify(theme)}`);
+  const theme = await page.evaluate(() => ({ selected: document.documentElement.dataset.theme, stored: localStorage.getItem('sakana_theme') }));
+  if (theme.selected !== 'light' || theme.stored !== 'light') throw new Error(`theme persistence failed: ${JSON.stringify(theme)}`);
 
   // Tab pane survives a reload via the URL hash.
   await page.click('#btnOpenSidebar');
@@ -145,11 +164,13 @@ try {
     };
   });
   if (afterFailure.storedHasDataUrl || afterFailure.domHasDataUrl || afterFailure.attachmentPreviewVisible) throw new Error(`attachment retained after failure: ${JSON.stringify(afterFailure)}`);
+  if (requestBodies[0].history_mode !== 'full' || requestBodies[0].conversation_id) throw new Error('initial request must send authoritative full history');
   if (!requestBodies[0]?.messages?.some(message => JSON.stringify(message).includes('chapter.txt'))) throw new Error('first outbound request omitted attachment metadata');
   if (!JSON.stringify(requestBodies[0]).includes('data:text/plain;base64,')) throw new Error('first outbound request omitted Data URL');
 
   await page.click('button[onclick*="retryLastChatMessage"]');
   await page.waitForFunction(() => document.querySelector('#chatMessages')?.textContent.includes('retry ok'), null, { timeout: 10_000 });
+  if (requestBodies[1].history_mode !== 'full' || requestBodies[1].conversation_id) throw new Error('no-ID retry must retain full-history mode');
   if (chatRequests !== 2 || !JSON.stringify(requestBodies[1]).includes('data:text/plain;base64,')) throw new Error('retry request did not carry its one-shot attachment');
 
   // Retry and new turns route style through the body, not removed toggles.
@@ -168,6 +189,38 @@ try {
   if (requestBodies[2].style !== 'osaka') throw new Error(`style parameter missing: ${JSON.stringify(requestBodies[2]).slice(0, 120)}`);
   const thirdPayload = JSON.stringify(requestBodies[2]);
   if (chatRequests !== 3 || thirdPayload.includes('data:text/plain;base64,') || thirdPayload.includes('chapter attachment')) throw new Error('later turn resent released attachment');
+  if (requestBodies[2].history_mode !== 'delta' || requestBodies[2].conversation_id !== 'smoke-conversation' || requestBodies[2].messages.length !== 1 || requestBodies[2].messages[0].content !== '开始下一回') throw new Error('continuation must send only the latest turn with an explicit scoped ID');
+
+  await page.fill('#chatInput', '上下文已过期的下一回');
+  await page.click('#btnSendChat');
+  await page.waitForSelector('#chatMessages [role="alert"]');
+  const expiredText = await page.locator('#chatMessages [role="alert"]').textContent();
+  if (!expiredText.includes('完整历史') || !expiredText.includes('原始附件')) throw new Error(`expired context recovery guidance missing: ${expiredText}`);
+  if (await page.locator('button[onclick*="retryLastChatMessage"]').count()) throw new Error('expired context must not offer a blind retry');
+  await page.fill('#chatInput', '不能静默丢失历史');
+  await page.click('#btnSendChat');
+  if (chatRequests !== 4 || await page.inputValue('#chatInput') !== '不能静默丢失历史') throw new Error('expired session silently continued or consumed input');
+
+  contextFailureCode = 'CONTEXT_MODEL_MISMATCH';
+  await page.evaluate(() => {
+    createNewChatSession();
+    const session = chatSessions.find(s => s.id === activeConversationId);
+    session.conversationId = 'different-model-conversation';
+    saveChatSessions();
+  });
+  await page.selectOption('#chatModelSelect', 'sakana-code');
+  await page.fill('#chatInput', '改用代码模型');
+  await page.click('#btnSendChat');
+  await page.waitForSelector('#chatMessages [role="alert"]');
+  const mismatchText = await page.locator('#chatMessages [role="alert"]').textContent();
+  if (!mismatchText.includes('模型不匹配') || !mismatchText.includes('新建聊天') || !mismatchText.includes('完整历史') || !mismatchText.includes('原始附件')) throw new Error(`model mismatch recovery guidance missing: ${mismatchText}`);
+  if (await page.locator('button[onclick*="retryLastChatMessage"]').count()) throw new Error('model mismatch offered blind retry');
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('#chatModelSelect option', { state: 'attached' });
+  await page.fill('#chatInput', '保留下一条输入');
+  await page.click('#btnSendChat');
+  if (chatRequests !== 5 || await page.inputValue('#chatInput') !== '保留下一条输入') throw new Error('model mismatch recovery flag did not survive reload or consumed input');
+  if (!(await page.locator('#toast').textContent()).includes('完整历史')) throw new Error('model mismatch guard lost recovery guidance after reload');
 
   await page.click('#btnOpenSidebar');
   await page.click('[data-tab="models"]');

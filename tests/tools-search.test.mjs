@@ -74,7 +74,8 @@ console.log('== 6. 客户端工具提示词强化 ==');
     messages: [{ role: 'user', content: '执行 ls' }],
     tools: [{ type: 'function', function: { name: 'bash', description: '执行命令', parameters: { type: 'object', properties: {} } } }],
   });
-  check('提示禁止内置沙盒工具', r.prompt.includes('禁止') && /run_command|run_python/.test(r.prompt), r.prompt.slice(-600));
+  check('提示通过客户端工具执行用户操作', r.prompt.includes('自定义工具') && /执行|调用/.test(r.prompt), r.prompt.slice(-600));
+  check('提示不否认用于读取上下文的沙盒', !/没有内置工具|没有任何可执行环境|禁止使用或提及任何内置沙盒/.test(r.prompt), r.prompt.slice(-600));
   check('提示只输出 JSON 对象', r.prompt.includes('JSON 对象') || r.prompt.includes('json'), r.prompt.slice(-600));
   check('工具名与描述入提示', r.prompt.includes('bash') && r.prompt.includes('执行命令'));
 }
@@ -143,6 +144,49 @@ console.log('== 9. 工具回合 JSON 候选抑制(声明 tools 时 content 不�
   const t3 = new NdjsonTranslator();
   const c = t3.line(JSON.stringify({ type: 'stream', token: '{"answer":"直接回答"}' }));
   check('无工具声明时不缓冲', c.some(x => (x.choices[0].delta.content || '').includes('直接回答')), JSON.stringify(c));
+}
+
+console.log('== 10. long canonical context keeps bounded client schemas visible ==');
+{
+  const previous = process.env.TOOL_HINT_MAX_BYTES;
+  process.env.TOOL_HINT_MAX_BYTES = '6000';
+  try {
+    const tools = Array.from({ length: 12 }, (_, index) => ({ type: 'function', function: {
+      name: `lookup_contract_${index}`,
+      description: 'SCHEMA-ONLY-MARKER ' + 'long description '.repeat(300),
+      parameters: { type: 'object', properties: { path: { type: 'string', description: 'ARG-SCHEMA-ONLY ' + 'detail '.repeat(300) }, mode: { type: 'string', enum: ['read', 'list'] } }, required: ['path'], additionalProperties: false },
+    } }));
+    const prompt = '[系统]\nEARLIER-FACT\n\n[用户]\n' + 'conversation text '.repeat(1500) + '\nLATEST-TASK: inspect the file.';
+    const r = openaiRequestToSakana({ model: 'sakana-code', tools, messages: [{ role: 'user', content: 'raw ignored' }] }, {
+      normalizedPrompt: prompt,
+      normalizedMessages: [{ role: 'user', parts: [{ kind: 'text', text: prompt }] }],
+      attachments: [],
+    });
+    const context = r.files.find((file) => file.synthetic);
+    check('canonical long history becomes a synthetic file', !!context);
+    const document = context?.buf.toString('utf8') || '';
+    check('tool schemas stay outside the task attachment', !/lookup_contract_|SCHEMA-ONLY-MARKER|ARG-SCHEMA-ONLY/.test(document) && document.includes('EARLIER-FACT'));
+    const hintIndex = r.prompt.indexOf('可用自定义工具列表');
+    const visibleHint = hintIndex >= 0 ? r.prompt.slice(hintIndex) : '';
+    check('entire visible tool hint is byte capped', hintIndex >= 0 && Buffer.byteLength(visibleHint, 'utf8') <= 6000, String(Buffer.byteLength(visibleHint, 'utf8')));
+    check('tool names and required parameter schema remain visible', tools.every((tool) => visibleHint.includes(tool.function.name)) && visibleHint.includes('"required":["path"]') && visibleHint.includes('"type":"string"') && visibleHint.includes('"read","list"'));
+    check('bounded hint preserves executable JSON contract and stop/wait rule', visibleHint.includes('{"tool":"工具名称","arguments":{...}}') && /停止|等待/.test(visibleHint));
+    check('context reading remains possible without false sandbox denial', !/没有内置工具|没有任何可执行环境|禁止使用或提及任何内置沙盒/.test(visibleHint));
+    const continuation = openaiRequestToSakana({ model: 'sakana-code', tools, messages: [{ role: 'user', content: 'raw ignored' }] }, {
+      normalizedPrompt: '[工具]\nRESULT-EXACT',
+      normalizedMessages: [{ role: 'tool', tool_call_id: 'call-1', parts: [{ kind: 'text', text: 'RESULT-EXACT' }] }],
+      attachments: [],
+    });
+    check('tool-result input still sees client tool contract once', continuation.isToolTurn && continuation.prompt.split('可用自定义工具列表').length === 2 && continuation.prompt.includes('lookup_contract_0'));
+
+    process.env.TOOL_HINT_MAX_BYTES = '2500';
+    const many = openaiRequestToSakana({ tools: Array.from({ length: 100 }, (_, i) => ({ type: 'function', function: { name: `large_catalog_${i}`, parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } } })), messages: [{ role: 'user', content: 'inspect' }] });
+    const capped = many.prompt.slice(many.prompt.indexOf('可用自定义工具列表'));
+    check('large catalog cannot exceed the visible byte cap', Buffer.byteLength(capped, 'utf8') <= 2500 && capped.includes('{"tool":"工具名称","arguments":{...}}'), String(Buffer.byteLength(capped, 'utf8')));
+    check('declared tool tracking remains complete when visible catalog is capped', many.clientToolNames.length === 100);
+  } finally {
+    if (previous === undefined) delete process.env.TOOL_HINT_MAX_BYTES; else process.env.TOOL_HINT_MAX_BYTES = previous;
+  }
 }
 
 console.log(failures === 0 ? '\nALL TOOLS/SEARCH TESTS PASSED' : `\n${failures} FAILURES`);

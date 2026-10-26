@@ -108,7 +108,7 @@ const child = spawn(process.execPath, ['server.js'], {
     SAKANA_COOKIE: 'fake-cookie=fake',
     CACHE_ENABLED: 'false',
     OPTICAL_CONTEXT_THRESHOLD: '6000',
-    OPTICAL_MAX_PAGES: '4',
+    OPTICAL_MAX_PAGES: '12',
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -160,7 +160,25 @@ try {
   assert.ok(prompt.includes('context_page-01'), 'prompt references the page images');
   assert.ok(prompt.includes('先读取全部图片页'), 'prompt instructs reading pages first');
 
-  console.log(`optical context tests: all passed (pages=${pageFiles.length})`);
+  const overflowNovel = `OPTICAL-OVERFLOW-START\n${'正文须在页数预算不足时保持完整。'.repeat(18000)}\nOPTICAL-OVERFLOW-MID\n${'后续章节不能静默消失。'.repeat(10000)}\nOPTICAL-OVERFLOW-END`;
+  const overflowResponse = await fetch(`http://127.0.0.1:${serverPort}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'sakana-writer', stream: false, messages: [{ role: 'user', content: overflowNovel }] }),
+  });
+  assert.equal(overflowResponse.status, 200, await overflowResponse.text());
+  const overflowGeneration = upstreamState.generations.at(-1);
+  const overflowPages = overflowGeneration.files.filter((file) => /^base64;context_page-\d+\.png$/.test(file.filename));
+  assert.equal(overflowPages.length, 0, 'truncated optical output falls back to the full text attachment');
+  const overflowFile = overflowGeneration.files.find((file) => file.filename === 'base64;context_document.txt');
+  assert.ok(overflowFile, 'overflow fallback retains the source context document');
+  const overflowSource = overflowFile.decoded.toString('utf8');
+  assert.ok(overflowSource.includes('OPTICAL-OVERFLOW-START') && overflowSource.includes('OPTICAL-OVERFLOW-MID') && overflowSource.includes('OPTICAL-OVERFLOW-END'));
+  const sourceOffset = overflowSource.indexOf(overflowNovel);
+  assert.ok(sourceOffset >= 0, 'the complete overflow source remains contiguous');
+  assert.equal(sha256(Buffer.from(overflowSource.slice(sourceOffset, sourceOffset + overflowNovel.length))), sha256(Buffer.from(overflowNovel)));
+
+  console.log(`optical context tests: all passed (pages=${pageFiles.length}, overflow fallback=complete)`);
 } finally {
   child.kill('SIGKILL');
   await new Promise((resolve) => upstreamServer.close(resolve));
