@@ -5,8 +5,8 @@
   <img src="https://img.shields.io/badge/status-stable-brightgreen" />
   <br/>
   <h1>🐟 sakana-2api</h1>
-  <p><strong>OpenAI 兼容 API 反代 → 免费 Sakana AI 网页聊天</strong></p>
-  <p>无需购买 API 密钥 · 浏览器会话直连 · 原生工具链支持</p>
+  <p><strong>OpenAI / Anthropic / Gemini 兼容反代 → 免费 Sakana AI 网页聊天</strong></p>
+  <p>多用户会话隔离 · 超长上下文管线 · 自动过盾注册与账号池 · 亮暗双主题管理面板</p>
 </div>
 
 ---
